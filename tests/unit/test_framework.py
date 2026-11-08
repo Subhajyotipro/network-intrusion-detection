@@ -48,25 +48,26 @@ def test_import_nids_does_not_import_torch():
 
 
 def test_static_scan_src_and_scripts_for_torch():
-    """Verify via AST parsing that no file in src/ or scripts/ imports torch."""
+    """Verify via AST parsing that no Python file in repo imports torch (except third_party)."""
     repo_root = Path(__file__).resolve().parent.parent.parent
-    scan_dirs = [repo_root / "src", repo_root / "scripts"]
+    excluded_dirs = {repo_root / "third_party", repo_root / ".venv", repo_root / ".git"}
 
     violations = []
-    for directory in scan_dirs:
-        for py_file in directory.rglob("*.py"):
-            with open(py_file, "r", encoding="utf-8") as f:
-                tree = ast.parse(f.read(), filename=str(py_file))
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Import):
-                    for alias in node.names:
-                        if alias.name == "torch" or alias.name.startswith("torch."):
-                            violations.append((str(py_file), node.lineno, alias.name))
-                elif isinstance(node, ast.ImportFrom):
-                    if node.module and (node.module == "torch" or node.module.startswith("torch.")):
-                        violations.append((str(py_file), node.lineno, node.module))
+    for py_file in repo_root.rglob("*.py"):
+        if any(exc in py_file.parents for exc in excluded_dirs):
+            continue
+        with open(py_file, "r", encoding="utf-8") as f:
+            tree = ast.parse(f.read(), filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name == "torch" or alias.name.startswith("torch."):
+                        violations.append((str(py_file), node.lineno, alias.name))
+            elif isinstance(node, ast.ImportFrom):
+                if node.module and (node.module == "torch" or node.module.startswith("torch.")):
+                    violations.append((str(py_file), node.lineno, node.module))
 
-    assert not violations, f"Torch import violations detected in runtime code: {violations}"
+    assert not violations, f"Torch import violations detected in repository: {violations}"
 
 
 def test_set_seed_reproducibility():

@@ -19,8 +19,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-# Set default Keras home to /tmp/.keras to prevent sandbox permission issues
+# Set default Keras and Matplotlib homes to /tmp to prevent sandbox permission issues
 os.environ.setdefault("KERAS_HOME", "/tmp/.keras")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 from nids.data import generate_synthetic_dataset  # noqa: E402
 

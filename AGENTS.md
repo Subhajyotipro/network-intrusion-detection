@@ -46,7 +46,7 @@ This combination is suggested in the literature but has **not been empirically v
 - **Upstream:** https://github.com/jackwilkie/CLOSR (Apache-2.0; paper: "A Novel Contrastive Loss for Zero-Day Network Intrusion Detection", IEEE TNSM 2026, DOI 10.1109/TNSM.2026.3652529).
 - Clone it into `third_party/CLOSR/` and treat it as **read-only reference**. Our own code lives in our own package and is *adapted* from it, never edited in place there.
 - Preserve the Apache-2.0 license header/attribution on every adapted file and add a top-level `NOTICE` file crediting the upstream authors.
-- **Framework Note:** Upstream is implemented in PyTorch. Our runtime codebase (`src/nids/`, `scripts/`) strictly uses **TensorFlow** with the Keras that ships inside it (`tf.keras`). Numerical reference-equivalence tests use PyTorch strictly as an isolated test-time dependency (via `requirements-reference.txt`). In Section 2.1, Section 3, and all task descriptions, wording such as KEEP, ADAPT, or port means **re-implement in TensorFlow**, reproducing upstream's mathematics, architectures, and defaults.
+- **Framework Note:** Upstream is implemented in PyTorch. Our entire codebase (`src/nids/`, `scripts/`, and all tests) strictly uses **TensorFlow** with the Keras that ships inside it (`tf.keras`) and **NumPy**. Upstream (`third_party/CLOSR/`) is a read-only source text reference for inspection only; it is never imported, never executed, and never placed on `sys.path`. There is no PyTorch dependency anywhere in the project. In Section 2.1, Section 3, and all task descriptions, wording such as KEEP, ADAPT, or port means **re-implement in TensorFlow**, reproducing upstream's mathematics, architectures, and defaults.
 
 ### 2.1 What is verified to exist upstream (from the README and source files)
 
@@ -137,7 +137,7 @@ Create this layout (names may be adjusted only if recorded in `docs/DEVIATIONS.m
 
 - `AGENTS.md` — this file
 - `decisions.md` — implementation decisions and pre-registered deviations
-- `NOTICE`, `LICENSE` (Apache-2.0), `README.md`, `pyproject.toml`, `requirements.txt`, `requirements-reference.txt`
+- `NOTICE`, `LICENSE` (Apache-2.0), `README.md`, `pyproject.toml`, `requirements.txt`
 - `third_party/CLOSR/` — upstream clone, read-only
 - `src/nids/` — our package
   - `config/` — dataclass/YAML configs; one default config per experiment
@@ -193,7 +193,7 @@ For **every task**:
 3. **Write tests first or alongside**: unit tests for logic, a smoke test on synthetic data, and where relevant a regression test on real data.
 4. **Run the full relevant test suite**. On failure: diagnose the root cause (do not patch symptoms), fix, rerun.
 5. **Automatic test-and-repair loop**:
-   - After finishing each task, and again before writing each PR summary report, run: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real and not reference"`.
+   - After finishing each task, and again before writing each PR summary report, run: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real"`.
    - On any failure: read the traceback, find the root cause, fix the code, then rerun the WHOLE suite (not only the failing test). Repeat until green.
    - Cap: 5 fix-iterations per distinct failing test (this keeps step 7's cap). If the same error appears twice with the same fix attempt, stop repeating it and re-diagnose with a different approach (check shapes, dtypes, devices, label alignment, score direction, data leakage).
    - After the cap: mark the test `xfail` with a reason, log it `OPEN` in `docs/BUGLOG.md` with your analysis, and continue with other tasks. Do not block the PR on it.
@@ -203,7 +203,7 @@ For **every task**:
 6. **Hunt bugs deliberately** (do this even when tests pass):
    - run with tiny inputs, batch size 1, empty class, single-class batch, NaN/Inf inputs, CPU-only, and mixed precision off/on (mixed precision is not implemented in our port, so only "off" applies — DV5 in `decisions.md`);
    - check shapes, dtype, device placement, label-index alignment, that the training flag (`training=True/False`) is passed correctly, and gradients disabled during inference (no `tf.GradientTape` active in inference);
-   - compare against the upstream implementation numerically on a fixed small input via `@pytest.mark.reference` tests (loss values, centroid values, scores must match within a small tolerance);
+   - compare against the NumPy reference implementations (losses, centroids, scores) on fixed seeded inputs within a small tolerance;
    - check for data leakage between splits.
 7. **Log every bug** in `docs/BUGLOG.md`: ID, symptom, root cause, fix, test that now guards it, task ID, iterations (how many fix-iterations it took).
 8. **Iterate** until all tests pass and acceptance criteria hold. Cap at 5 fix-iterations per bug; if still failing, document it as "OPEN" in the report with the analysis, and continue with other tasks.
@@ -222,7 +222,7 @@ For **every task**:
 | PR1-T01 | Scaffolding & attribution | Create repo layout (Section 4), clone upstream into `third_party/`, pin `requirements.txt`, add `NOTICE`, license headers, `docs/UPSTREAM_INVENTORY.md` (Section 2.2). Copy the pre-registered deviations DV1–DV6 from `decisions.md` Appendix B into `docs/DEVIATIONS.md`. | Fresh clone + install works; inventory file lists every upstream file inspected; `docs/DEVIATIONS.md` contains DV1–DV6. |
 | PR1-T02 | Config system | One config object per experiment replacing the duplicated argparse blocks in upstream train/eval scripts; CLI overrides allowed. | Same hyperparameter defaults as Section 2.3; boolean flags (residual, squared) parse correctly from CLI (see Section 12, item 1). |
 | PR1-T03 | Data pipeline | Adapt `get_data` + `tabular_dl`; load Lycos2017; drop identifier columns; encode labels with benign = 0; hold out classes with < 100 samples as zero-day (evaluation arrays label them `UNKNOWN_ID = -1`, DV4); class-balanced training sampler; **add validation split** support (carved from the train remainder after the fixed test split, DV6); save split indices; build the synthetic data generator. Write `docs/DATA_CARD.md` (class counts per split, zero-day classes, feature count, preprocessing/scaling). | Class counts reported; zero-day classes absent from train/val; no index overlap between splits (tested); synthetic generator reproduces schema. |
-| PR1-T04 | Models & losses | Port CLAD model/loss and CLOSR model/loss in TensorFlow. Make `d_in` configurable. | Unit tests: output shapes; embeddings unit-norm after normalisation; loss finite and non-negative; gradients flow to all parameters; loss decreases on a toy separable problem over a few steps; margin and `squared` flag change the loss as expected; asymmetric behaviour (benign vs malicious treated differently) is demonstrated by a test; numerical match with upstream loss on fixed inputs via `@pytest.mark.reference` test. |
+| PR1-T04 | Models & losses | Port CLAD model/loss and CLOSR model/loss in TensorFlow. Make `d_in` configurable. | Unit tests: output shapes; embeddings unit-norm after normalisation; loss finite and non-negative; gradients flow to all parameters; loss decreases on a toy separable problem over a few steps; margin and `squared` flag change the loss as expected; asymmetric behaviour (benign vs malicious treated differently) is demonstrated by a test; numerical match against an independent NumPy reference implementation of the upstream loss formulas, transcribed from upstream source, on fixed seeded inputs. |
 | PR1-T05 | Unified trainer | One trainer supporting CLAD and CLOSR in TensorFlow: Keras AdamW, warm-up + cosine schedule, balanced sampler, meters, periodic logging, checkpointing (weights + optimiser + schedule + config + class map + seed). Support resume and a `--smoke` mode (few batches). | Smoke training runs end-to-end on synthetic data on CPU; resume reproduces identical next-step loss; checkpoint reload restores identical outputs. |
 | PR1-T06 | Evaluation harness | Port embedding extraction, centroid computation, similarity, open-set score, and every metric listed in Section 2.3 into a reusable `metrics` module. CLAD evaluation: per-attack-class AUROC table split into closed-set and open-set parts, with means. CLOSR evaluation: closed-set accuracy, open-set AUC, OpenAUC, FPR@95, F1, recall, benign FPR, mAP, PR-AUC. Output JSON + CSV. | Metrics match upstream eval scripts on identical inputs (tested); per-class tables generated; results file includes seed, commit hash, config. |
 | PR1-T07 | Baselines | Inventory `baseline_implementations/`. Port and run every baseline that exists as code. **Minimum:** MLP (closed-set supervised) and Autoencoder in Keras; Isolation Forest (`sklearn`). PyTorch baselines are upstream-reported unless a faithful TensorFlow port is small. All remaining baselines from the README tables are listed as "reported upstream numbers, not re-run", clearly labelled. | A comparison table CLAD/CLOSR vs. baselines produced with the same splits and metrics; each row marked "re-run" or "upstream-reported". |
@@ -274,7 +274,7 @@ For **every task**:
 
 Each report (`docs/reports/PRn_summary.md`) must contain these sections, in this order, so the human can compare it against this file:
 
-1. **Header** — PR number, date, git commit hash, branch, environment (OS, Python, PyTorch, device), dataset used (real / synthetic / mixed), seeds.
+1. **Header** — PR number, date, git commit hash, branch, environment (OS, Python, TensorFlow, device), dataset used (real / synthetic / mixed), seeds.
 2. **Task completion matrix** — a table with one row per task ID from this file: `Task ID | Title | Status (DONE / PARTIAL / BLOCKED / NOT DONE) | Files created or changed | Evidence (test name, result file, figure) | Notes`.
 3. **Acceptance-criteria checklist** — each acceptance criterion from this file, ticked or unticked, with the verification method.
 4. **Results** — the key numbers/tables produced in this PR, with mean ± std where applicable, and the comparison with the Section 2.4 targets (PR1) or with previous PRs (PR2, PR3).
@@ -305,7 +305,7 @@ The report must be factual: no task may be marked DONE without evidence listed i
 - [ ] Test suite green; BUGLOG complete; leakage audit passed.
 - [ ] Automatic pytest repair loop ran after every task; no failing test left unlogged.
 - [ ] Attribution to upstream authors and Apache-2.0 compliance in place.
-- [ ] No torch import in src/ or scripts/ (guard test green); torch used only in reference tests.
+- [ ] No torch import or dependency anywhere in the project outside third_party/ (guard test green).
 - [ ] `docs/DEVIATIONS.md` lists DV1–DV6 from `decisions.md` plus any further deviations.
 
 ---

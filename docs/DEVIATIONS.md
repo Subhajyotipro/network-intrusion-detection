@@ -18,3 +18,4 @@ This file tracks all pre-registered and runtime deviations from `AGENTS.md` spec
 | ID | AGENTS.md / decisions.md says | We do instead | Why |
 |---|---|---|---|
 | DV7 | Upstream pins: `numpy==1.24.2`, `pandas==2.0.0`, `scikit-learn==1.2.2`, `torch==2.0.1` | Use nearest installable versions compatible with Python 3.11 on Apple Silicon macOS | Older binary wheels for numpy 1.24.2 / pandas 2.0.0 are not natively precompiled for modern macOS arm64 Python 3.11 |
+

@@ -132,3 +132,4 @@ Every file in `third_party/CLOSR/` was inspected:
    - AGENTS.md PR2-T02 noted "Reuse the upstream Siamese baseline if it exists; otherwise implement...". We have confirmed that `baseline_implementations/openset_recognition/siamese_network.py` exists upstream.
 3. **Dependency Versions:**
    - Upstream pinned `numpy==1.24.2`, `pandas==2.0.0`, `scikit-learn==1.2.2`, `torch==2.0.1`. On modern Python 3.11+ (especially macOS arm64), older C-extension wheels may require updated release pins (recorded as DV7 in `docs/DEVIATIONS.md`).
+

@@ -14,6 +14,33 @@
 """Shared pytest fixtures, configuration, and synthetic data helpers."""
 
 import os
+from pathlib import Path
+
+import pandas as pd
+import pytest
 
 # Set default Keras home to /tmp/.keras to prevent sandbox permission issues
 os.environ.setdefault("KERAS_HOME", "/tmp/.keras")
+
+from nids.data import generate_synthetic_dataset  # noqa: E402
+
+
+@pytest.fixture
+def tiny_synthetic_df() -> pd.DataFrame:
+    """Fixture providing a tiny synthetic dataset (8 features, 4 known + 1 zero-day class)."""
+    return generate_synthetic_dataset(
+        n_samples_known=200,
+        n_samples_zd=20,
+        n_features=8,
+        seed=42,
+        known_classes=["benign", "Botnet", "DDoS", "Portscan"],
+        zero_day_classes=["Heartbleed"],
+    )
+
+
+@pytest.fixture
+def tiny_synthetic_csv_path(tmp_path: Path, tiny_synthetic_df: pd.DataFrame) -> Path:
+    """Fixture providing the path to a saved tiny synthetic CSV file."""
+    csv_path = tmp_path / "tiny_lycos.csv"
+    tiny_synthetic_df.to_csv(csv_path, index=False)
+    return csv_path

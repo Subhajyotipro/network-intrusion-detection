@@ -48,6 +48,13 @@ data/*.csv
 weights/*.tar
 results/weights/
 
+# Testing & Coverage
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+
 # OS specific
 .DS_Store
 Thumbs.db

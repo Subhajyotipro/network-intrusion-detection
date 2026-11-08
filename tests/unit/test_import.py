@@ -34,4 +34,3 @@ def test_import_nids_modules():
     for mod in modules:
         m = importlib.import_module(mod)
         assert m is not None
-

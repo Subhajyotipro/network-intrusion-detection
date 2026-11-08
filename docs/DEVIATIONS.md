@@ -18,4 +18,6 @@ This file tracks all pre-registered and runtime deviations from `AGENTS.md` spec
 | ID | AGENTS.md / decisions.md says | We do instead | Why |
 |---|---|---|---|
 | DV7 | Upstream pins: `numpy==1.24.2`, `pandas==2.0.0`, `scikit-learn==1.2.2`, `torch==2.0.1` | Use nearest installable versions compatible with Python 3.11 on Apple Silicon macOS | Older binary wheels for numpy 1.24.2 / pandas 2.0.0 are not natively precompiled for modern macOS arm64 Python 3.11 |
+| DV8 | AGENTS §2.3 global model defaults (out 64, hidden 1024-1024-1024) | Per-kind defaults: CLOSR uses out 64, 3 hidden layers; CLAD uses out 8, 4 hidden layers per `train_clad.py` | Mirrors upstream scripts exactly per model kind |
+| DV9 | AGENTS §5.2 / decisions.md D4.3 upstream default training seed check | Upstream scripts set no training seed (only split seed `39058032`); training seeds are `[1, 2, 3]` | Ensures deterministic, multi-seed training runs |
 

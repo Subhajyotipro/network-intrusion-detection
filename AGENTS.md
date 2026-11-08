@@ -81,7 +81,7 @@ The agent could not open sub-folder listings when this file was written. Before 
 - Input dimension: **72** (hard-coded upstream). Number of classes: **12** (benign + 11 known attacks).
 - Zero-day definition: classes with fewer than **100** samples (`sample_thres`) are held out as zero-day. Per the README's result tables, the zero-day classes are **Heartbleed** and **Web Attack (SQL Injection)**. Verify against the data.
 - Split: seed `39058032`, `test_ratio=0.5`, `val_ratio=0.0` (upstream has **no validation split** — PR1-T03 adds support for one; PR2 and PR3 use it).
-- Model defaults: output dim 64, hidden layers 1024-1024-1024, dropout 0.1, no residual connections.
+- Model defaults: output dim 64, hidden layers 1024-1024-1024, dropout 0.1, no residual connections. (Note: model defaults differ per model kind: CLOSR = output dim 64 with hidden 1024-1024-1024; CLAD = output dim and layer count taken from `train_clad.py` as recorded in the inventory.)
 - Loss defaults: margin 1.0, squared distance enabled.
 - Optimiser defaults: AdamW, batch size 4096, weight decay ≈ 0.0403709, peak LR 1e-5 with warm-up (epochs/10) then cosine decay, 200 epochs, class-balanced sampling, drop_last.
 - CLOSR inference: build class centroids from training embeddings (L2-normalised), compute cosine similarity of each test embedding to each centroid; closed-set prediction = argmax; **open-set score = sum over classes of (similarity² × softmax(similarity))**; lower score ⇒ more likely zero-day.

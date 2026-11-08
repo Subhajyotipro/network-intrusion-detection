@@ -12,4 +12,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Loss functions: CLAD asymmetric contrastive loss, CLOSR multiclass loss, and Siamese loss."""
-

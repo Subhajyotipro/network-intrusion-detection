@@ -12,4 +12,3 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """nids package: CLOSR -> Siamese cascade network intrusion detection system."""
-

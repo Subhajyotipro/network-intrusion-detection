@@ -1,0 +1,82 @@
+# Default experiment configuration (CLOSR defaults)
+# Paths
+data_path: "data/lycos.csv"
+results_dir: "results"
+weights_dir: "weights"
+upstream_dir: "third_party/CLOSR"
+
+# Data
+split_seed: 39058032
+test_ratio: 0.5
+val_ratio: 0.0
+sample_thres: 100
+drop_cols:
+  - "flow_id"
+  - "src_addr"
+  - "src_port"
+  - "dst_addr"
+  - "dst_port"
+  - "ip_prot"
+  - "timestamp"
+class_zero: "benign"
+
+# Model & Loss (CLOSR)
+model_kind: "closr"
+d_in: null
+d_out: 64
+n_classes: 12
+hidden:
+  - 1024
+  - 1024
+  - 1024
+dropout: 0.1
+residual: false
+margin: 1.0
+squared: true
+
+# Optimizer & Schedule
+batch_size: 4096
+weight_decay: 0.0403709
+lr_init: 1.0e-6
+lr_peak: 1.0e-5
+lr_final: 1.0e-6
+warmup_frac: 0.1
+epochs: 200
+seed: 1
+seeds:
+  - 1
+  - 2
+  - 3
+smoke: false
+max_batches: null
+
+# Inference & Calibration
+scorer: "upstream"
+grid_size: 200
+target_acceptance:
+  - 0.95
+  - 0.99
+f_beta: 1.0
+max_known_rejection: 0.05
+max_benign_fp: 0.01
+siamese_conf_grid: 10
+skip_if_confident_benign: false
+
+# Siamese Stage-2
+support_mode: "prototype"
+k_exemplars: 5
+
+# Benchmarking
+warmup_runs: 20
+timed_runs: 200
+bench_batch_sizes:
+  - 1
+  - 32
+  - 1024
+
+# Visualization
+tsne_max_points: 5000
+
+# Device
+device: "auto"
+

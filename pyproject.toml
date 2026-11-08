@@ -34,6 +34,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 timeout = 120
 markers = [
     "real: tests requiring the real Lycos2017 dataset (deselect with '-m \"not real\"')",

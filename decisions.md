@@ -106,7 +106,7 @@ docs/            # UPSTREAM_INVENTORY.md DEVIATIONS.md BUGLOG.md DATA_CARD.md re
 
 ### D4.3 Splits and seeds
 - **Split seed is fixed at `39058032`** (upstream) for all experiments; every model sees identical data.
-- **Training seeds: `[1, 2, 3]`** for every multi-seed table (AGENTS §5.2, mean ± std). PR1-T08 additionally runs upstream's default training seed if one is defined in `train_*.py` (verify).
+- **Training seeds: `[1, 2, 3]`** for every multi-seed table (AGENTS §5.2, mean ± std). Upstream sets no training seed; training seeds are 1, 2, 3.
   Note: because the split is fixed, std reflects training randomness only — state this in reports.
 - `test_ratio=0.5` always, so **the test set is identical to upstream's**. `val_ratio` is carved out of the *train* remainder **after** the test split (default `0.1` for PR2/PR3; `0.0` for PR1-T08 to reproduce upstream exactly). Consequence: PR2/PR3 models train on 90 % of upstream's train set, so their numbers are **not directly comparable to §2.4**; say so in the reports.
 - Splits are stratified (`sklearn.model_selection.train_test_split`) and saved to `results/splits/<hash>.npz` (indices).
@@ -118,7 +118,7 @@ docs/            # UPSTREAM_INVENTORY.md DEVIATIONS.md BUGLOG.md DATA_CARD.md re
 - `d_in` = number of feature columns after dropping, written into config at load time.
 
 ### D4.5 Config
-- One flat `Config` dataclass + `configs/default.yaml`. Defaults mirror AGENTS §2.3.
+- One flat `Config` dataclass + `configs/default.yaml`. Defaults are per model kind (closr, clad), taken from the upstream training script for that kind; `configs/default.yaml` holds the CLOSR defaults and `configs/clad.yaml` holds only the values that differ. Siamese and MLP defaults get defined when those tasks start.
 - CLI override: repeated `--set key=value`; the value is parsed with `yaml.safe_load`, so `false`, `1e-5`, `[1,2]` parse correctly. This fixes the boolean-flag bug (AGENTS §12.1) in a few lines. **`residual` stays in the config** (default `false`, copied from upstream's model if upstream implements it), and a test checks `--set residual=false` and `--set squared=false` yield `False`.
 - Required fields (so no magic numbers live in code):
   - paths: `data_path`, `results_dir`, `weights_dir`, `upstream_dir`

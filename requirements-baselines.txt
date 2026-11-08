@@ -1,0 +1,4 @@
+# Optional baseline dependencies (e.g. OpenMax)
+Cython==3.3.1
+libmr==0.1.9
+

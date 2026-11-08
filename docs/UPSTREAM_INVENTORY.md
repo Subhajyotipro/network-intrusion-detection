@@ -75,27 +75,73 @@ Every file in `third_party/CLOSR/` was inspected:
 - It contains `OnlineContrastiveLoss` (line 122), pairwise distance matrices (`distance_matrix`, line 88), kNN distance weighting (`apply_knn_weight`, line 105), and open-set kNN inference (`knn_predict`, `knn_eval`, `knn_min_distance_ood_eval`).
 - **Impact on DV2:** Because upstream code exists, PR2-T02 will adapt this upstream implementation directly, rather than building from scratch.
 
-### Question 3: Which baselines are runnable code vs. reported numbers only
-- **Runnable code present in `baseline_implementations/`:**
-  - *Binary anomaly baselines:* Autoencoder (`autoencoder.py`), DAE-LR (`daelr.py`), DUAD (`duad_train.py`), Isolation Forest (`isolation_forrest.py`), RENOIR (`renoir.py`), Deep SVDD (`svdd.py`), One-class SVM (`svm.py`).
-  - *Open-set baselines:* CROSR (`crosr.py`), DOC (`doc.py`), MultiStage (`multistage_nids.py`), OpenMax (`openmax.py`), Siamese Network (`siamese_network.py`).
-- **Reported numbers only (or needing parameter variants/wrappers):**
-  - `AutoSVM`: Reported in README Table 1; shares implementation with `svm.py` but with automated tuning parameters not wrapped as a separate script.
-  - `MLP` (closed-set): Reported in README Table 1; uses standard feed-forward networks from `common/feed_forward.py` or `model/model.py`, but has no dedicated top-level `mlp_train.py` script.
+### Question 3: Which baselines are present as code vs. reported numbers only
+
+| Baseline | Category | Source Path | Status | Executed? (yes/no) | Notes |
+|---|---|---|---|:---:|---|
+| **Autoencoder** | Binary / Anomaly | `baseline_implementations/binary_classification/autoencoder.py` | Present as code | no | Reusable module |
+| **DAE-LR** | Binary / Anomaly | `baseline_implementations/binary_classification/daelr.py` | Present as code | no | Reusable module |
+| **DUAD** | Binary / Anomaly | `baseline_implementations/binary_classification/duad_train.py` | Present as code | no | Training loop |
+| **Isolation Forest** | Binary / Anomaly | `baseline_implementations/binary_classification/isolation_forrest.py` | Present as code | no | Note spelling in filename |
+| **RENOIR** | Binary / Anomaly | `baseline_implementations/binary_classification/renoir.py` | Present as code | no | Reusable module |
+| **Deep SVDD** | Binary / Anomaly | `baseline_implementations/binary_classification/svdd.py` | Present as code | no | Reusable module |
+| **One-Class SVM** | Binary / Anomaly | `baseline_implementations/binary_classification/svm.py` | Present as code | no | Reusable module |
+| **AutoSVM** | Binary / Anomaly | N/A | Reported numbers only | no | In README Table 1; shares SVM logic with auto-tuning |
+| **MLP (closed-set)** | Supervised / Closed-set | `model/model.py` / `baseline_implementations/common/feed_forward.py` | Components present | no | Reported in README Table 1; no standalone top-level script |
+| **CROSR** | Open-Set | `baseline_implementations/openset_recognition/crosr.py` | Present as code | no | Reusable module |
+| **DOC** | Open-Set | `baseline_implementations/openset_recognition/doc.py` | Present as code | no | Reusable module |
+| **MultiStage NIDS** | Open-Set | `baseline_implementations/openset_recognition/multistage_nids.py` | Present as code | no | Reusable module |
+| **OpenMax** | Open-Set | `baseline_implementations/openset_recognition/openmax.py` | Present as code | no | Requires `libmr` (verified in `requirements-baselines.txt`) |
+| **Siamese Network** | Open-Set / Metric | `baseline_implementations/openset_recognition/siamese_network.py` | Present as code | no | 474 lines, OnlineContrastiveLoss & kNN inference |
 
 ---
 
 ## 3. Facts to Reuse in Later Tasks (with exact file and line references)
 
-1. **Default Training Seed:**
+### Upstream Argparse Defaults Side-by-Side Table
+
+Every argument from `train_clad.py` and `train_closr.py` is tabulated below with exact file and line citations:
+
+| Configuration Item | `train_clad.py` (CLAD) | Read at (`train_clad.py`) | `train_closr.py` (CLOSR) | Read at (`train_closr.py`) | Notes / Comparison |
+|---|---|---|---|---|---|
+| `data_path` | `"data/lycos.csv"` | line 21 | `"data/lycos.csv"` | line 21 | Identical |
+| `drop_cols` | `"flow_id,src_addr,src_port,dst_addr,dst_port,ip_prot,timestamp"` | line 26 | `"flow_id,src_addr,src_port,dst_addr,dst_port,ip_prot,timestamp"` | line 26 | Identical identifier drop list |
+| `sample_thres` | `100` | line 32 | `100` | line 32 | Identical threshold for zero-day holdout |
+| `split_seed` | `39058032` | line 36 | `39058032` | line 36 | Fixed split seed |
+| `test_ratio` | `0.5` | line 106 | `0.5` | line 108 | Hardcoded in `set_loader()` |
+| `val_ratio` | `0.0` | line 107 | `0.0` | line 109 | Hardcoded in `set_loader()` (no validation split upstream) |
+| `class_zero` | `"benign"` | line 103 | `"benign"` | line 105 | Hardcoded in `set_loader()` |
+| `d_in` | `72` | line 126 | `72` | line 128 | Hardcoded in `set_model()` |
+| `d_out` | `8` | line 41 | `64` | line 41 | **Differs:** CLAD uses 8; CLOSR uses 64 |
+| `n_classes` | `12` | line 44 | `12` | line 44 | 1 benign + 11 known attacks |
+| `neurons` / hidden layers | `[1024, 1024, 1024, 1024]` (4 layers) | line 49 | `[1024, 1024, 1024]` (3 layers) | line 49 | **Differs:** CLAD has 4 hidden layers; CLOSR has 3 |
+| `dropout` | `0.0` | line 52 | `0.1` | line 52 | **Differs:** CLAD dropout 0.0; CLOSR dropout 0.1 |
+| `residual` | `False` (`type=bool`) | line 56 | `False` (`type=bool`) | line 56 | Boolean flag pitfall §12.1 |
+| `margin` ($m$) | `1.0` | line 62 | `1.0` | line 62 | Identical margin |
+| `squared` | `True` (`type=bool`) | line 67 | `True` (`type=bool`) | line 67 | Boolean flag pitfall §12.1 |
+| `batch_size` | `4096` | line 72 | `4096` | line 72 | Identical batch size |
+| Sampler `balanced` | `True` | line 114 | `True` | line 116 | Hardcoded in `tabular_dl()` call |
+| `drop_last` | `True` | line 116 | `True` | line 118 | Hardcoded in `tabular_dl()` call |
+| `weight_decay` | `3e-7` | line 73 | `0.0403709` | line 74 | **Differs:** CLAD uses 3e-7; CLOSR uses ~0.04037 |
+| `lr` (peak) | `4.4e-6` | line 74 | `1e-5` | line 76 | **Differs:** CLAD peak LR 4.4e-6; CLOSR peak LR 1e-5 |
+| `lr_init` | `1e-6` | lines 146, 152 | `1e-6` | lines 149, 155 | Hardcoded in `set_optimiser()` |
+| `lr_final` (`end_val`) | `1e-6` | line 153 | `1e-6` | line 156 | Hardcoded in `set_optimiser()` |
+| `warmup_steps` / `warmup_frac` | `epochs // 10` (fraction 0.1) | line 156 | `epochs // 10` (fraction 0.1) | line 159 | 10% of total schedule steps |
+| Schedule stepping | Per step/batch (`schedule.step()`) | line 206 | Per step/batch (`schedule.step()`) | line 209 | Stepped inside batch loop, not per epoch |
+| `epochs` | `200` | line 75 | `200` | line 77 | Identical epoch count |
+| `device` | `"cuda"` | line 76, 133 | `"cuda"` | line 78, 135 | Hardcoded CUDA default |
+| Training seed | None set | N/A | None set | N/A | Neither script seeds PyTorch/NumPy for training |
+
+### Detailed Findings & Reusable Facts
+
+1. **No Upstream Training Seed:**
    - In `train_closr.py` (line 36) and `train_clad.py` (line 36), the only seed exposed via CLI is `--split_seed 39058032`, passed directly to `get_data(...)`.
-   - **Crucial finding:** Neither `train_closr.py` nor `train_clad.py` calls `torch.manual_seed(...)` or `np.random.seed(...)` in `main()`. Our port explicitly introduces multi-seed training (seeds 1, 2, 3) as mandated by `AGENTS.md` §5.2 and `decisions.md` D4.3.
+   - Neither script calls `torch.manual_seed(...)` or `np.random.seed(...)` in `main()`. Our port explicitly introduces multi-seed training (seeds 1, 2, 3) as mandated by `AGENTS.md` §5.2 and `decisions.md` D4.3.
 
 2. **Learning Rate, Schedule, and Stepping:**
-   - `train_closr.py` lines 147–167:
-     - Optimizer: `AdamW` with initial `lr=1e-6`, `betas=(0.9, 0.999)`, `weight_decay=0.0403709` (CLI default line 74).
-     - Schedule: `WarmupCosineSchedule(start_val=1e-6, end_val=1e-6, ref_val=opt.lr, T_max=opt.epochs * len(train_dl), warmup_steps=int((opt.epochs // 10) * len(train_dl)))`. Peak LR (`opt.lr`) defaults to `1e-5` (line 76).
-     - Stepping frequency: `schedule.step()` is called **per batch / per step** (line 209 in `train()`), **not** per epoch!
+   - Both models use `AdamW` with initial `lr=1e-6`, `betas=(0.9, 0.999)`.
+   - `WarmupCosineSchedule(start_val=1e-6, end_val=1e-6, ref_val=opt.lr, T_max=opt.epochs * len(train_dl), warmup_steps=int((opt.epochs // 10) * len(train_dl)))`.
+   - Stepping frequency: `schedule.step()` is called **per batch / per step** (`train_clad.py` line 206, `train_closr.py` line 209), **not** per epoch.
 
 3. **Feature Scaling in `data/load_data.py`:**
    - Lines 100–104:
@@ -106,7 +152,7 @@ Every file in `third_party/CLOSR/` was inspected:
      x_test = norm.normalise(x_test) if x_test is not None else None
      x_zd = norm.normalise(x_zd) if x_zd is not None else None
      ```
-   - **Verification:** The `ZNormaliser` is fit **strictly on `x_train` only**, preventing test or zero-day leakage into training normalization statistics. `ZNormaliser` uses Bessel's correction (`ddof=1` for sample standard deviation).
+   - The `ZNormaliser` is fit **strictly on `x_train` only**, preventing test or zero-day leakage into training normalization statistics. `ZNormaliser` uses Bessel's correction (`ddof=1` for sample standard deviation).
 
 4. **Validation Split Handling:**
    - In `train_closr.py` (line 109) and `train_clad.py` (line 109), `val_ratio` is hardcoded to `0.0`.
@@ -115,9 +161,9 @@ Every file in `third_party/CLOSR/` was inspected:
    - This matches pre-registered deviation DV6.
 
 5. **Argparse Plain Boolean Flags (Pitfall §12.1):**
-   - In `train_closr.py`:
-     - Line 54: `parser.add_argument("--residual", type=bool, default=False, ...)`
-     - Line 65: `parser.add_argument("--squared", type=bool, default=True, ...)`
+   - In `train_closr.py` lines 54 & 65, and `train_clad.py` lines 54 & 65:
+     `parser.add_argument("--residual", type=bool, default=False, ...)`
+     `parser.add_argument("--squared", type=bool, default=True, ...)`
    - Passing `--residual False` or `--squared False` in standard Python argparse results in `True` because any non-empty string evaluates to `True`. Handled in our port via YAML config (`yaml.safe_load`).
 
 ---

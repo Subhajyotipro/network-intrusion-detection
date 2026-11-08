@@ -156,6 +156,26 @@ def test_scaler_and_imputer_fit_on_train_only(tmp_path: Path):
     assert np.allclose(splits2.x_train.std(axis=0), 1.0, atol=1e-5)
 
 
+def test_zero_column_mask_computed_on_train_only(tmp_path: Path):
+    """Verify all-zero column mask is fit on train split only without test leakage (DV13)."""
+    df = generate_synthetic_dataset(n_samples_known=100, n_samples_zd=10, seed=42)
+    # Zero out feature_0 across all known classes (which form train/val/test),
+    # but give zero-day flows non-zero values for feature_0.
+    df.loc[df["label"].isin(KNOWN_CLASSES), "feature_0"] = 0.0
+    df.loc[df["label"].isin(ZERO_DAY_CLASSES), "feature_0"] = 42.0
+
+    csv_path = tmp_path / "train_zero_zd_nonzero.csv"
+    df.to_csv(csv_path, index=False)
+
+    splits = load_data(csv_path, sample_thres=50, test_ratio=0.5, val_ratio=0.0, split_seed=42)
+    # Because feature_0 was all-zero in train, it must be dropped (d_in drops from 72 to 71)
+    # even though it was non-zero in zero-day data!
+    assert splits.d_in == 71
+    assert splits.x_train.shape[1] == 71
+    assert splits.x_test.shape[1] == 71
+    assert splits.x_zd.shape[1] == 71
+
+
 def test_nan_and_inf_handling(tmp_path: Path):
     """Verify +-inf values are replaced with NaN and imputed using train medians."""
     df = generate_synthetic_dataset(n_samples_known=50, n_samples_zd=5, seed=42)

@@ -76,26 +76,28 @@ class DatasetSplits:
 
 
 def _clean_and_scale(x_train: np.ndarray, *others: Optional[np.ndarray]) -> tuple[np.ndarray, ...]:
-    """Fit median imputer and StandardScaler on train only; transform all passed arrays."""
-    x_train_clean = np.where(np.isneginf(x_train) | np.isposinf(x_train), np.nan, x_train)
-    col_medians = np.nan_to_num(np.nanmedian(x_train_clean, axis=0), nan=0.0)
-
-    inds = np.where(np.isnan(x_train_clean))
-    x_train_clean[inds] = np.take(col_medians, inds[1])
+    """Fit zero-mask, imputer, and scaler on train only; transform all passed arrays (DV13)."""
+    mask = ~np.all(x_train == 0, axis=0)
+    x_tr = x_train[:, mask]
+    x_tr = np.where(np.isneginf(x_tr) | np.isposinf(x_tr), np.nan, x_tr)
+    col_medians = np.nan_to_num(np.nanmedian(x_tr, axis=0), nan=0.0)
+    inds = np.where(np.isnan(x_tr))
+    x_tr[inds] = np.take(col_medians, inds[1])
     scaler = StandardScaler()
-    x_train_scaled = scaler.fit_transform(x_train_clean)
+    scaled_tr = scaler.fit_transform(x_tr)
 
     scaled_others: list[Optional[np.ndarray]] = []
     for x in others:
         if x is None:
             scaled_others.append(None)
             continue
-        xc = np.where(np.isneginf(x) | np.isposinf(x), np.nan, x)
+        xc = x[:, mask]
+        xc = np.where(np.isneginf(xc) | np.isposinf(xc), np.nan, xc)
         inds_x = np.where(np.isnan(xc))
         xc[inds_x] = np.take(col_medians, inds_x[1])
         scaled_others.append(scaler.transform(xc))
 
-    return (x_train_scaled, *scaled_others)
+    return (scaled_tr, *scaled_others)
 
 
 def save_split_indices(indices: dict[str, np.ndarray], out_path: str | Path) -> Path:
@@ -144,15 +146,14 @@ def _split_train_val_test(
 def _read_features_and_labels(
     data_path: str | Path, drop_cols: list[str], target_col: str
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    """Read CSV, drop identifier columns, remove all-zero columns, and extract labels."""
+    """Read CSV, drop identifier columns, and extract features and labels."""
     df = pd.read_csv(data_path)
     cols_to_drop = [c for c in drop_cols if c in df.columns]
     if cols_to_drop:
         df = df.drop(columns=cols_to_drop)
     y_raw = df[target_col].astype(str).to_numpy()
     x_raw = df.drop(columns=[target_col]).to_numpy(dtype=np.float32)
-    non_zero = ~np.all(x_raw == 0, axis=0)
-    return x_raw[:, non_zero], y_raw, len(df)
+    return x_raw, y_raw, len(df)
 
 
 def _split_known_and_zero_day(

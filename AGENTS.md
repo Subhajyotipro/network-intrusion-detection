@@ -14,6 +14,7 @@
 5. Never fabricate results. If a number cannot be reproduced, report the real number and the gap.
 6. If something in this file conflicts with what the upstream repo actually contains, trust the upstream repo, record the discrepancy in `docs/DEVIATIONS.md`, and continue.
 7. The human asked for this file to contain no code. The agent writes all code itself, guided by the specifications here.
+8. Also read `decisions.md` in full before starting (right after Sections 1–6). It resolves open implementation choices, defines the flattened source layout, and lists pre-registered deviations DV1–DV6 (its Appendix B), which the agent copies into `docs/DEVIATIONS.md` during PR1-T01. **Precedence:** on scientific protocol (Sections 5.1, 5.5, 6, 12), acceptance criteria, and the report template (Section 10), this file wins; on implementation style and any choice this file leaves open, `decisions.md` wins; any other conflict → follow this file and log it in `docs/DEVIATIONS.md`.
 
 ---
 
@@ -79,7 +80,7 @@ The agent could not open sub-folder listings when this file was written. Before 
 - Dropped identifier columns: flow_id, src_addr, src_port, dst_addr, dst_port, ip_prot, timestamp. Target column: `label`. Benign class name: `benign` (class index 0).
 - Input dimension: **72** (hard-coded upstream). Number of classes: **12** (benign + 11 known attacks).
 - Zero-day definition: classes with fewer than **100** samples (`sample_thres`) are held out as zero-day. Per the README's result tables, the zero-day classes are **Heartbleed** and **Web Attack (SQL Injection)**. Verify against the data.
-- Split: seed `39058032`, `test_ratio=0.5`, `val_ratio=0.0` (upstream has **no validation split** — PR2 adds one).
+- Split: seed `39058032`, `test_ratio=0.5`, `val_ratio=0.0` (upstream has **no validation split** — PR1-T03 adds support for one; PR2 and PR3 use it).
 - Model defaults: output dim 64, hidden layers 1024-1024-1024, dropout 0.1, no residual connections.
 - Loss defaults: margin 1.0, squared distance enabled.
 - Optimiser defaults: AdamW, batch size 4096, weight decay ≈ 0.0403709, peak LR 1e-5 with warm-up (epochs/10) then cosine decay, 200 epochs, class-balanced sampling, drop_last.
@@ -129,10 +130,13 @@ Acceptable reproduction tolerance: within **±0.01** on accuracy/AUROC-type metr
 
 ## 4. Target repository layout
 
-Create this layout (names may be adjusted only if recorded in `docs/DEVIATIONS.md`):
+Create this layout (names may be adjusted only if recorded in `docs/DEVIATIONS.md`).
+
+**Flattening rule (pre-registered as DV1 in `decisions.md`):** the `src/nids/` subpackages listed below may be implemented as flat modules, one file per bullet (`config.py`, `data.py`, `models.py`, `losses.py`, `train.py`, `infer.py`, `metrics.py`, `calibrate.py`, `cascade.py`, `bench.py`, `viz.py`), and the `scripts/` entry points may be one `run.py` with subcommands plus `make_report.py`, exactly as specified in `decisions.md` D2. Everything else in this layout — including `tests/unit`, `tests/integration`, `tests/regression` and every file under `docs/` — is mandatory as written.
 
 - `AGENTS.md` — this file
-- `NOTICE`, `LICENSE` (Apache-2.0), `README.md`
+- `decisions.md` — implementation decisions and pre-registered deviations
+- `NOTICE`, `LICENSE` (Apache-2.0), `README.md`, `pyproject.toml`, `requirements.txt`
 - `third_party/CLOSR/` — upstream clone, read-only
 - `src/nids/` — our package
   - `config/` — dataclass/YAML configs; one default config per experiment
@@ -160,7 +164,7 @@ Create this layout (names may be adjusted only if recorded in `docs/DEVIATIONS.m
 
 **5.2 Reproducibility**
 - Seed Python, NumPy, and PyTorch everywhere; record seeds in every result file.
-- Main comparisons use **at least 3 seeds**, reporting mean ± std. Single-seed numbers must be labelled as such.
+- Main comparisons use **at least 3 seeds**, reporting mean ± std. Single-seed numbers must be labelled as such. The seed protocol (fixed split seed, training seeds 1, 2, 3) is in `decisions.md` D4.3.
 - Record library versions, device, and git commit hash in every result file.
 
 **5.3 Environment**
@@ -171,7 +175,7 @@ Create this layout (names may be adjusted only if recorded in `docs/DEVIATIONS.m
 **5.4 Quality**
 - Type hints and docstrings on public functions; no hard-coded paths or magic numbers (use configs).
 - Configs are the only place for hyperparameters. Defaults mirror Section 2.3.
-- Logging via a standard logger (not bare prints); metrics saved as machine-readable files.
+- Logging via a standard logger (not bare prints), except the demo's human-readable output (PR3-T08); metrics saved as machine-readable files.
 - Lint/format with a standard tool (ruff/black or equivalent).
 
 **5.5 Honesty rule**
@@ -187,16 +191,24 @@ For **every task**:
 2. **Implement** the smallest working version.
 3. **Write tests first or alongside**: unit tests for logic, a smoke test on synthetic data, and where relevant a regression test on real data.
 4. **Run the full relevant test suite**. On failure: diagnose the root cause (do not patch symptoms), fix, rerun.
-5. **Hunt bugs deliberately** (do this even when tests pass):
-   - run with tiny inputs, batch size 1, empty class, single-class batch, NaN/Inf inputs, CPU-only, and mixed precision off/on;
+5. **Automatic test-and-repair loop**:
+   - After finishing each task, and again before writing each PR summary report, run: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real"`.
+   - On any failure: read the traceback, find the root cause, fix the code, then rerun the WHOLE suite (not only the failing test). Repeat until green.
+   - Cap: 5 fix-iterations per distinct failing test (this keeps step 7's cap). If the same error appears twice with the same fix attempt, stop repeating it and re-diagnose with a different approach (check shapes, dtypes, devices, label alignment, score direction, data leakage).
+   - After the cap: mark the test `xfail` with a reason, log it `OPEN` in `docs/BUGLOG.md` with your analysis, and continue with other tasks. Do not block the PR on it.
+   - Forbidden shortcuts: never delete, skip, or weaken a test, loosen a tolerance, or hard-code expected values just to make it pass. A test may be changed only if you can show the test itself is wrong; log that in `docs/BUGLOG.md` with the evidence.
+   - A task may be marked DONE only after the suite is green (or the remaining failures are documented OPEN).
+   - If real data exists, also run `pytest -m real` once at the end of each PR.
+6. **Hunt bugs deliberately** (do this even when tests pass):
+   - run with tiny inputs, batch size 1, empty class, single-class batch, NaN/Inf inputs, CPU-only, and mixed precision off/on (mixed precision is not implemented in our port, so only "off" applies — DV5 in `decisions.md`);
    - check shapes, dtype, device placement, label-index alignment, and train/eval mode;
    - compare against the upstream implementation numerically on a fixed small input (loss values, centroid values, scores must match within a small tolerance);
    - check for data leakage between splits.
-6. **Log every bug** in `docs/BUGLOG.md`: ID, symptom, root cause, fix, test that now guards it, task ID.
-7. **Iterate** until all tests pass and acceptance criteria hold. Cap at 5 fix-iterations per bug; if still failing, document it as "OPEN" in the report with the analysis, and continue with other tasks.
-8. **Stop and ask the human** only if: the dataset is unobtainable AND no synthetic fallback can satisfy the task, a licence problem appears, or results contradict the abstract's core claim in a way that needs a scope decision.
+7. **Log every bug** in `docs/BUGLOG.md`: ID, symptom, root cause, fix, test that now guards it, task ID, iterations (how many fix-iterations it took).
+8. **Iterate** until all tests pass and acceptance criteria hold. Cap at 5 fix-iterations per bug; if still failing, document it as "OPEN" in the report with the analysis, and continue with other tasks.
+9. **Stop and ask the human** only if: the dataset is unobtainable AND no synthetic fallback can satisfy the task, a licence problem appears, or results contradict the abstract's core claim in a way that needs a scope decision.
 
-**Definition of Done for a PR:** all tasks implemented, all tests green (or documented OPEN with justification), reproducibility seeds recorded, and the PR summary report written.
+**Definition of Done for a PR:** all tasks implemented, all tests green (or documented OPEN with justification), the automatic test-and-repair loop ended with a green suite or documented OPEN items, reproducibility seeds recorded, and the PR summary report written.
 
 ---
 
@@ -206,14 +218,14 @@ For **every task**:
 
 | ID | Task | Details | Acceptance criteria |
 |---|---|---|---|
-| PR1-T01 | Scaffolding & attribution | Create repo layout (Section 4), clone upstream into `third_party/`, pin `requirements.txt`, add `NOTICE`, license headers, `docs/UPSTREAM_INVENTORY.md` (Section 2.2). | Fresh clone + install works; inventory file lists every upstream file inspected. |
+| PR1-T01 | Scaffolding & attribution | Create repo layout (Section 4), clone upstream into `third_party/`, pin `requirements.txt`, add `NOTICE`, license headers, `docs/UPSTREAM_INVENTORY.md` (Section 2.2). Copy the pre-registered deviations DV1–DV6 from `decisions.md` Appendix B into `docs/DEVIATIONS.md`. | Fresh clone + install works; inventory file lists every upstream file inspected; `docs/DEVIATIONS.md` contains DV1–DV6. |
 | PR1-T02 | Config system | One config object per experiment replacing the duplicated argparse blocks in upstream train/eval scripts; CLI overrides allowed. | Same hyperparameter defaults as Section 2.3; boolean flags (residual, squared) parse correctly from CLI (see Section 12, item 1). |
-| PR1-T03 | Data pipeline | Adapt `get_data` + `tabular_dl`; load Lycos2017; drop identifier columns; encode labels with benign = 0; hold out classes with < 100 samples as zero-day; class-balanced training sampler; **add validation split** support; save split indices; build the synthetic data generator. Write `docs/DATA_CARD.md` (class counts per split, zero-day classes, feature count, preprocessing/scaling). | Class counts reported; zero-day classes absent from train/val; no index overlap between splits (tested); synthetic generator reproduces schema. |
+| PR1-T03 | Data pipeline | Adapt `get_data` + `tabular_dl`; load Lycos2017; drop identifier columns; encode labels with benign = 0; hold out classes with < 100 samples as zero-day (evaluation arrays label them `UNKNOWN_ID = -1`, DV4); class-balanced training sampler; **add validation split** support (carved from the train remainder after the fixed test split, DV6); save split indices; build the synthetic data generator. Write `docs/DATA_CARD.md` (class counts per split, zero-day classes, feature count, preprocessing/scaling). | Class counts reported; zero-day classes absent from train/val; no index overlap between splits (tested); synthetic generator reproduces schema. |
 | PR1-T04 | Models & losses | Port CLAD model/loss and CLOSR model/loss. Make `d_in` configurable. | Unit tests: output shapes; embeddings unit-norm after normalisation; loss finite and non-negative; gradients flow to all parameters; loss decreases on a toy separable problem over a few steps; margin and `squared` flag change the loss as expected; asymmetric behaviour (benign vs malicious treated differently) is demonstrated by a test; numerical match with upstream loss on fixed inputs. |
 | PR1-T05 | Unified trainer | One trainer supporting CLAD and CLOSR: AdamW, warm-up + cosine schedule, balanced sampler, meters, periodic logging, checkpointing (weights + optimiser + schedule + config + class map + seed). Support resume and a `--smoke` mode (few batches). | Smoke training runs end-to-end on synthetic data on CPU; resume reproduces identical next-step loss; checkpoint reload restores identical outputs. |
 | PR1-T06 | Evaluation harness | Port embedding extraction, centroid computation, similarity, open-set score, and every metric listed in Section 2.3 into a reusable `metrics` module. CLAD evaluation: per-attack-class AUROC table split into closed-set and open-set parts, with means. CLOSR evaluation: closed-set accuracy, open-set AUC, OpenAUC, FPR@95, F1, recall, benign FPR, mAP, PR-AUC. Output JSON + CSV. | Metrics match upstream eval scripts on identical inputs (tested); per-class tables generated; results file includes seed, commit hash, config. |
 | PR1-T07 | Baselines | Inventory `baseline_implementations/`. Port and run every baseline that exists as code. **Minimum:** MLP (closed-set supervised), Isolation Forest, Autoencoder, and the open-set baselines available upstream. All remaining baselines from the README tables are listed as "reported upstream numbers, not re-run", clearly labelled. | A comparison table CLAD/CLOSR vs. baselines produced with the same splits and metrics; each row marked "re-run" or "upstream-reported". |
-| PR1-T08 | Reproduction check | Train CLAD and CLOSR with default config on real data (≥1 seed; 3 seeds preferred) and compare with Section 2.4. | Metrics within ±0.01 of targets, or a written explanation of every gap in the report. If dataset blocked, mark BLOCKED and show synthetic-data results instead. |
+| PR1-T08 | Reproduction check | Train CLAD and CLOSR with default config on real data (≥1 seed; 3 seeds preferred) and compare with Section 2.4. Use `val_ratio=0.0` here so the setup matches upstream. If only a CPU is available and epochs must be reduced, record `reduced_run=true` and mark the task PARTIAL (`decisions.md` D3.8). | Metrics within ±0.01 of targets, or a written explanation of every gap in the report. If dataset blocked, mark BLOCKED and show synthetic-data results instead. |
 | PR1-T09 | Visualisation | t-SNE of CLAD embeddings and CLOSR embeddings (benign vs. malicious vs. zero-day), saved to `results/figures/`. | Figures generated by a script, deterministic given seed. |
 | PR1-T10 | Test & bug-hunt pass | Run the Section 6 loop across the whole PR1 code; build `tests/unit`, `tests/integration`, and a numeric regression test against upstream. | All tests green; `docs/BUGLOG.md` populated; coverage of loss, data, metrics, checkpoint modules reported. |
 | PR1-T11 | **PR1 summary report** | `docs/reports/PR1_summary.md` using Section 10 template. | Every PR1 task ID has a status and evidence. |
@@ -226,8 +238,8 @@ For **every task**:
 
 | ID | Task | Details | Acceptance criteria |
 |---|---|---|---|
-| PR2-T01 | Validation & calibration protocol | Finalise train/val/test/zero-day protocol (Section 5.1). Implement **leave-one-attack-out pseudo-zero-day** validation: for calibration, temporarily treat one known attack class as unseen to simulate zero-day behaviour without touching real zero-day classes. | Test proving real zero-day samples are never used in any calibration function; pseudo-zero-day option documented. |
-| PR2-T02 | Siamese classifier (Stage 2) | Reuse the upstream Siamese baseline if it exists; otherwise implement: shared encoder, pair or triplet sampling with class balancing, a contrastive/pair loss, training loop, checkpointing. Inference by comparing a flow's embedding with a **support set** (class prototypes or exemplars from training data) and returning class + confidence. Trains on known classes only (benign + known attacks). | Smoke-trains on synthetic data; reaches closed-set accuracy near the upstream Siamese figure (~0.9977) on real data; support-set construction is deterministic and saved with the checkpoint. |
+| PR2-T01 | Validation & calibration protocol | Finalise train/val/test/zero-day protocol (Section 5.1). Implement **leave-one-attack-out pseudo-zero-day** validation: for calibration, temporarily treat one known attack class as unseen to simulate zero-day behaviour without touching real zero-day classes (method: drop that class's centroid/prototype at calibration time, `decisions.md` D5 and DV3). | Test proving real zero-day samples are never used in any calibration function; pseudo-zero-day option documented. |
+| PR2-T02 | Siamese classifier (Stage 2) | Reuse the upstream Siamese baseline if it exists; otherwise implement: shared encoder, pair or triplet sampling with class balancing (an in-batch pair mask with class-balanced batches satisfies this, DV2), a contrastive/pair loss, training loop, checkpointing. Inference by comparing a flow's embedding with a **support set** (class prototypes or exemplars from training data) and returning class + confidence. Trains on known classes only (benign + known attacks). | Smoke-trains on synthetic data; reaches closed-set accuracy near the upstream Siamese figure (~0.9977) on real data; support-set construction is deterministic and saved with the checkpoint. |
 | PR2-T03 | Closed-set comparison CLOSR vs Siamese | Same splits, ≥3 seeds. Report accuracy, macro-F1, per-class recall/precision/F1, malicious-only metrics, confusion matrices, mean ± std. Also include the MLP baseline. | Table + confusion matrices showing the size of CLOSR's closed-set gap (or lack of one) with statistical spread. A short written conclusion on whether the abstract's claim holds in our runs. |
 | PR2-T04 | Open-set comparison | Same protocol for zero-day detection: open-set AUC, OpenAUC, FPR@95, per-zero-day-class AUROC for CLOSR, CLAD, and Siamese (using a confidence-based score for Siamese). | Table showing CLOSR's open-set advantage; Siamese open-set numbers close to the upstream ~0.72 (document if not). |
 | PR2-T05 | Gatekeeper API | A Stage-1 component wrapping a trained CLOSR: returns the open-set score, a closed-set prediction, and an accept/reject decision for a given threshold; supports single-flow and batch input. Pluggable scoring functions: (a) upstream score (similarity² weighted by softmax), (b) max cosine similarity, (c) max softmax. | All three scorers evaluated and compared on validation + test; default = upstream score unless another is clearly better on validation (decision recorded). |
@@ -245,9 +257,9 @@ For **every task**:
 | ID | Task | Details | Acceptance criteria |
 |---|---|---|---|
 | PR3-T01 | Cascade pipeline | `Cascade` object: Stage 1 (CLOSR gatekeeper) scores each flow → if accepted, Stage 2 (Siamese) assigns one of the known classes (benign + known attacks); if rejected, output **UNKNOWN / zero-day suspected**. Final label space = known classes ∪ {UNKNOWN}. Batch and single-flow APIs. Configurable variants: (A) default per abstract — accepted flows all go to the Siamese; (B) optional — if CLOSR itself is confident the flow is benign, skip Siamese (documented as an extension, off by default). | Cascade runs end-to-end on synthetic and real data; variant A is the default; unit tests cover accept path, reject path, batch consistency (batch result equals per-flow result), and deterministic output. |
-| PR3-T02 | Joint threshold calibration | Calibrate the CLOSR rejection threshold **jointly** with end-to-end performance (not just the gate in isolation). Search over threshold values (and optionally a Siamese-confidence secondary threshold) on validation (+ pseudo-zero-day) to optimise end-to-end objectives; compare strategies: (1) gate-only calibration from PR2-T06, (2) joint end-to-end calibration, (3) constrained version (max zero-day recall subject to ≤ X % known-traffic rejection and ≤ Y % benign false positives). Plot the trade-off (Pareto/operating curve). | Chosen thresholds come only from validation data (tested); report shows joint calibration vs. gate-only calibration on test + zero-day; trade-off plot produced. |
+| PR3-T02 | Joint threshold calibration | Calibrate the CLOSR rejection threshold **jointly** with end-to-end performance (not just the gate in isolation). Search over threshold values (and optionally a Siamese-confidence secondary threshold) on validation (+ pseudo-zero-day) to optimise end-to-end objectives; compare strategies: (1) gate-only calibration from PR2-T06, (2) joint end-to-end calibration, (3) constrained version (max zero-day recall subject to ≤ X % known-traffic rejection and ≤ Y % benign false positives; defaults X = 5, Y = 1 live in the config). Plot the trade-off (Pareto/operating curve). | Chosen thresholds come only from validation data (tested); report shows joint calibration vs. gate-only calibration on test + zero-day; trade-off plot produced. |
 | PR3-T03 | Error-propagation analysis | Decompose end-to-end outcomes into exclusive categories: (E1) known flow wrongly **rejected** by Stage 1; (E2) zero-day flow wrongly **accepted** by Stage 1; (E3) known flow accepted but **misclassified** by Stage 2; (E4) known flow accepted and classified correctly; (E5) zero-day correctly rejected. Report: counts and rates overall and per class; Stage-2 accuracy **conditioned on accepted flows** versus on all flows; **where leaked zero-day flows land** (which known class the Siamese assigns them to, including benign — a security-critical case); per-class sensitivity to threshold. Compare against **oracle gate** (perfect Stage 1) to isolate how much end-to-end loss is caused by Stage 1 mistakes. | Complete decomposition table; leakage matrix (zero-day class × assigned known class); oracle-gate comparison; a written discussion of how errors propagate across the CLOSR–Siamese boundary. |
-| PR3-T04 | End-to-end evaluation | Systems compared on identical splits and ≥3 seeds: **CLOSR-only**, **Siamese-only (with its own confidence rejection)**, **CLAD (binary)**, **Cascade (gate-only calibrated)**, **Cascade (jointly calibrated)**, and **Cascade with oracle gate**. Metrics: closed-set accuracy on known flows, accuracy on accepted known flows, open-set AUC, **OpenAUC**, per-class AUROC, FPR@95, macro-F1 over known ∪ {UNKNOWN}, zero-day detection rate, benign false-positive rate, known-flow false-rejection rate. | One consolidated results table (mean ± std) and plots; each row's calibration data source stated; the abstract's claim "jointly achieves strong open-set and closed-set performance" is explicitly supported or refuted by the numbers. |
+| PR3-T04 | End-to-end evaluation | Systems compared on identical splits and ≥3 seeds: **CLOSR-only**, **Siamese-only (with its own confidence rejection)**, **CLAD (binary)**, **Cascade (gate-only calibrated)**, **Cascade (jointly calibrated)**, and **Cascade with oracle gate**. Metrics: closed-set accuracy on known flows, accuracy on accepted known flows, open-set AUC, **OpenAUC**, per-class AUROC, FPR@95, macro-F1 over known ∪ {UNKNOWN}, zero-day detection rate, benign false-positive rate, known-flow false-rejection rate. Cascade-specific metric definitions are in Section 13. | One consolidated results table (mean ± std) and plots; each row's calibration data source stated; the abstract's claim "jointly achieves strong open-set and closed-set performance" is explicitly supported or refuted by the numbers. |
 | PR3-T05 | Latency & throughput benchmark | Measure per-flow and batched latency for: CLOSR-only, Siamese-only, cascade (stage-wise breakdown: preprocessing, Stage 1, Stage 2, decision logic). Report p50/p95/p99 latency, throughput (flows/s), GPU and CPU if available, with warm-up runs excluded, proper device synchronisation, several batch sizes (including 1), and repeated runs. Also report the cost of Stage 2 being skipped for rejected flows. | Benchmark script + results table + plot; includes hardware description; overhead of the cascade over CLOSR-only quantified in absolute (ms) and relative (%) terms. |
 | PR3-T06 | Ablations | (a) Scorer choice (PR2-T05), (b) threshold strategy, (c) support-set size for the Siamese, (d) variant A vs. B, (e) effect of number of known classes at the gate (optional stretch). | Small ablation table; findings summarised in a paragraph each. |
 | PR3-T07 | Results aggregation & figures | Script that regenerates **every** table and figure for the final report from saved result files in one command. | Running it on a clean checkout with saved results reproduces all report artifacts. |
@@ -265,9 +277,9 @@ Each report (`docs/reports/PRn_summary.md`) must contain these sections, in this
 2. **Task completion matrix** — a table with one row per task ID from this file: `Task ID | Title | Status (DONE / PARTIAL / BLOCKED / NOT DONE) | Files created or changed | Evidence (test name, result file, figure) | Notes`.
 3. **Acceptance-criteria checklist** — each acceptance criterion from this file, ticked or unticked, with the verification method.
 4. **Results** — the key numbers/tables produced in this PR, with mean ± std where applicable, and the comparison with the Section 2.4 targets (PR1) or with previous PRs (PR2, PR3).
-5. **Tests** — number of tests, pass/fail counts, coverage summary, and the command used to run them.
+5. **Tests** — number of tests, pass/fail counts, coverage summary, the command used to run them, the number of repair-loop iterations per task, and the final pytest command and output summary.
 6. **Bugs found and fixed** — summary of `docs/BUGLOG.md` entries from this PR (ID, symptom, root cause, fix, guarding test) and any **OPEN** bugs.
-7. **Deviations from AGENTS.md** — anything done differently from this file and why (also logged in `docs/DEVIATIONS.md`).
+7. **Deviations from AGENTS.md** — anything done differently from this file and why (also logged in `docs/DEVIATIONS.md`), including which of the pre-registered DV1–DV6 from `decisions.md` were applied in this PR.
 8. **Reuse log** — which upstream files/functions were reused, adapted, or skipped, and why.
 9. **Risks / limitations / open questions** for the human.
 10. **How to reproduce** — the exact ordered list of commands (install → data → train → evaluate → report).
@@ -290,7 +302,9 @@ The report must be factual: no task may be marked DONE without evidence listed i
 - [ ] Demo script runs and is explainable in a few minutes.
 - [ ] Three PR summary reports plus the final report exist and map to the abstract.
 - [ ] Test suite green; BUGLOG complete; leakage audit passed.
+- [ ] Automatic pytest repair loop ran after every task; no failing test left unlogged.
 - [ ] Attribution to upstream authors and Apache-2.0 compliance in place.
+- [ ] `docs/DEVIATIONS.md` lists DV1–DV6 from `decisions.md` plus any further deviations.
 
 ---
 
@@ -326,6 +340,8 @@ The agent must verify each of these, and if confirmed, fix it in our code and lo
 - **Macro-F1 over known ∪ {UNKNOWN}:** end-to-end F1 treating UNKNOWN as an extra predicted class, with zero-day flows' true label = UNKNOWN.
 - **Oracle-gate cascade:** a cascade in which Stage 1 is replaced by ground-truth known/unknown knowledge, giving the upper bound for Stage 2 performance.
 - **Latency percentiles:** p50 / p95 / p99 of per-flow wall-clock time, excluding warm-up.
+- **Cascade open-set AUC:** AUROC of the Stage-1 gate score; identical to CLOSR-only by construction, and reports must say so.
+- **Cascade closed-set accuracy (three labelled forms):** (i) Stage-2 accuracy on *all* known test flows, ignoring rejection — this is the figure used for the cascade's OpenAUC (= (i) × cascade open-set AUC); (ii) **end-to-end** accuracy, where known flows rejected by Stage 1 count as errors; (iii) accuracy **conditioned on accepted** known flows. Every table column must state which form it reports.
 
 ---
 

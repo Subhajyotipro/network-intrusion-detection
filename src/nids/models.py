@@ -15,7 +15,7 @@
 
 Adapted from upstream CLOSR (Apache-2.0, DOI 10.1109/TNSM.2026.3652529)
 by Jack Wilkie et al. Re-implemented in TensorFlow / Keras 3 with configurable
-input dimensions, weight initializations, and optional batch normalization.
+input dimensions and weight initializations.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ def _get_initializers(
 
 
 class ResidualBlock(tf.keras.layers.Layer):
-    """Dense block with linear transformation, optional BN, ReLU, dropout, and residual skip."""
+    """Dense block with linear transformation, ReLU activation, dropout, and residual skip."""
 
     def __init__(
         self,
@@ -56,24 +56,15 @@ class ResidualBlock(tf.keras.layers.Layer):
         init: str = "torch_default",
         apply_dropout: bool = True,
         apply_activation: bool = True,
-        batch_norm: bool = False,
-        bn_momentum: float = 0.9,
-        bn_epsilon: float = 1e-5,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.residual = residual
-        self.batch_norm = batch_norm
         k_init, b_init = _get_initializers(in_dim, init)
         self.dense = tf.keras.layers.Dense(
             out_dim, kernel_initializer=k_init, bias_initializer=b_init
-        )
-        self.bn = (
-            tf.keras.layers.BatchNormalization(momentum=bn_momentum, epsilon=bn_epsilon)
-            if batch_norm
-            else None
         )
         self.act = tf.keras.layers.Activation("relu") if apply_activation else None
         self.drop = tf.keras.layers.Dropout(dropout) if (apply_dropout and dropout > 0.0) else None
@@ -90,10 +81,8 @@ class ResidualBlock(tf.keras.layers.Layer):
             self.resize = None
 
     def call(self, inputs: tf.Tensor, training: bool = False) -> tf.Tensor:
-        """Forward pass through linear layer, optional BN, activation, dropout, and residual sum."""
+        """Forward pass through linear layer, activation, dropout, and residual sum."""
         x = self.dense(inputs)
-        if self.bn is not None:
-            x = self.bn(x, training=training)
         if self.act is not None:
             x = self.act(x)
         if self.drop is not None:
@@ -111,9 +100,6 @@ def mlp(
     residual: bool = False,
     init: str = "torch_default",
     final_activation: bool = False,
-    batch_norm: bool = False,
-    bn_momentum: float = 0.9,
-    bn_epsilon: float = 1e-5,
 ) -> tf.keras.Sequential:
     """Build a Sequential MLP backbone adhering faithfully to upstream CLOSR block structure."""
     dims = [d_in] + list(hidden)
@@ -133,9 +119,6 @@ def mlp(
                 init=init,
                 apply_dropout=apply_drop,
                 apply_activation=apply_act,
-                batch_norm=batch_norm,
-                bn_momentum=bn_momentum,
-                bn_epsilon=bn_epsilon,
             )
         )
     if not layers:
@@ -154,9 +137,6 @@ class ContrastiveMLP(tf.keras.Model):
         dropout: float = 0.0,
         residual: bool = False,
         init: str = "torch_default",
-        batch_norm: bool = False,
-        bn_momentum: float = 0.9,
-        bn_epsilon: float = 1e-5,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -174,9 +154,6 @@ class ContrastiveMLP(tf.keras.Model):
             residual=residual,
             init=init,
             final_activation=False,
-            batch_norm=batch_norm,
-            bn_momentum=bn_momentum,
-            bn_epsilon=bn_epsilon,
         )
         head_in = hidden[-1] if hidden else d_in
         k_init, b_init = _get_initializers(head_in, init)
@@ -201,9 +178,6 @@ class CLOSRMLP(tf.keras.Model):
         dropout: float = 0.1,
         residual: bool = False,
         init: str = "torch_default",
-        batch_norm: bool = False,
-        bn_momentum: float = 0.9,
-        bn_epsilon: float = 1e-5,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -222,9 +196,6 @@ class CLOSRMLP(tf.keras.Model):
             residual=residual,
             init=init,
             final_activation=True,
-            batch_norm=batch_norm,
-            bn_momentum=bn_momentum,
-            bn_epsilon=bn_epsilon,
         )
         head_in = hidden[-1] if hidden else d_in
         k_init, b_init = _get_initializers(head_in, init)
@@ -256,9 +227,6 @@ def get_model(cfg: Config, d_in: Optional[int] = None) -> tf.keras.Model:
             dropout=cfg.dropout,
             residual=cfg.residual,
             init=cfg.init,
-            batch_norm=cfg.batch_norm,
-            bn_momentum=cfg.bn_momentum,
-            bn_epsilon=cfg.bn_epsilon,
         )
     if kind == "closr":
         return CLOSRMLP(
@@ -269,8 +237,5 @@ def get_model(cfg: Config, d_in: Optional[int] = None) -> tf.keras.Model:
             dropout=cfg.dropout,
             residual=cfg.residual,
             init=cfg.init,
-            batch_norm=cfg.batch_norm,
-            bn_momentum=cfg.bn_momentum,
-            bn_epsilon=cfg.bn_epsilon,
         )
     raise ValueError(f"Unknown model_kind: '{cfg.model_kind}'. Expected 'clad' or 'closr'.")

@@ -220,3 +220,47 @@ def test_models_error_handling_and_edge_cases():
     m = mlp(d_in=4, hidden=[8], d_out=16)
     out_mlp = m(tf.random.normal([2, 4]))
     assert out_mlp.shape == (2, 16)
+
+
+def test_eval_mode_is_row_independent_and_deterministic():
+    """Verify training=False output for a flow is deterministic and independent of batch context."""
+    cfg = Config(model_kind="closr", d_in=4, hidden=[16, 16], d_out=4, n_classes=3)
+    model = get_model(cfg)
+
+    flow_1 = tf.constant([[1.0, 2.0, 3.0, 4.0]], dtype=tf.float32)
+    flow_2 = tf.constant([[5.0, 6.0, 7.0, 8.0]], dtype=tf.float32)
+    batch = tf.concat([flow_1, flow_2], axis=0)
+
+    # Output of flow_1 evaluated alone
+    out_single = model(flow_1, training=False).numpy()
+    # Output of flow_1 evaluated inside batch
+    out_batch = model(batch, training=False).numpy()
+
+    # The first row of batch output must match out_single exactly
+    np.testing.assert_allclose(out_batch[0:1], out_single, rtol=1e-6, atol=1e-6)
+
+
+def test_model_weights_persistence_roundtrip():
+    """Verify model weights save and reload restores bitwise-identical evaluation outputs."""
+    cfg = Config(
+        model_kind="closr",
+        d_in=8,
+        hidden=[16, 16],
+        d_out=8,
+        n_classes=3,
+    )
+    m1 = get_model(cfg)
+    _ = m1(tf.zeros([1, 8]), training=False)
+    weights = m1.get_weights()
+
+    # Build fresh second model instance
+    m2 = get_model(cfg)
+    _ = m2(tf.zeros([1, 8]), training=False)
+    m2.set_weights(weights)
+
+    rng = np.random.default_rng(123)
+    test_x = tf.convert_to_tensor(rng.standard_normal((4, 8), dtype=np.float32))
+    out1 = m1(test_x, training=False).numpy()
+    out2 = m2(test_x, training=False).numpy()
+
+    np.testing.assert_allclose(out1, out2, rtol=1e-7, atol=1e-7)

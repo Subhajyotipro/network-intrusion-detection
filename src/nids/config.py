@@ -79,9 +79,6 @@ class Config:
     dropout: float = 0.1
     residual: bool = False
     init: str = "torch_default"
-    batch_norm: bool = False
-    bn_momentum: float = 0.9
-    bn_epsilon: float = 1e-5
     margin: float = 1.0
     squared: bool = True
 
@@ -154,10 +151,6 @@ def validate_config(cfg: Config) -> None:
         raise ValueError("hidden layers list cannot be empty")
     if any(h <= 0 for h in cfg.hidden):
         raise ValueError(f"hidden layer dimensions must be positive, got {cfg.hidden}")
-    if not (0.0 <= cfg.bn_momentum <= 1.0):
-        raise ValueError(f"bn_momentum must be in [0.0, 1.0], got {cfg.bn_momentum}")
-    if cfg.bn_epsilon <= 0:
-        raise ValueError(f"bn_epsilon must be positive, got {cfg.bn_epsilon}")
     for name, val in (
         ("batch_size", cfg.batch_size),
         ("d_out", cfg.d_out),

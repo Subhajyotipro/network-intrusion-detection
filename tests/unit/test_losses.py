@@ -262,3 +262,23 @@ def test_identical_batch_finite_loss_and_no_self_pairs():
     f_np = np_clad_fraction_pos(x_clad.numpy(), y_clad.numpy())
     assert np.isfinite(l_np) and l_np >= 0.0
     assert np.isclose(f_np, 0.0)
+
+
+def test_self_pair_float32_roundoff_exceeds_eps_matches_reference():
+    """Verify batch with float32 self-distance > eps matches reference without distortion."""
+    rng = np.random.default_rng(0)
+    # Seed 0 generates float32 unit vectors where 5 diagonal elements evaluate to ~5.96e-8 > 1e-8
+    v = rng.standard_normal((16, 8)).astype(np.float32)
+    v_norm = v / np.linalg.norm(v, axis=-1, keepdims=True)
+    y = np.zeros((16,), dtype=np.int32)
+
+    diag_f32 = np.diag((1.0 - v_norm @ v_norm.T) / 2.0)
+    assert np.any(diag_f32 > 1e-8), "Precondition failed: float32 roundoff must exceed eps=1e-8"
+
+    tf_loss = float(clad_loss(tf.constant(v_norm), tf.constant(y)))
+    tf_frac = float(clad_fraction_pos(tf.constant(v_norm), tf.constant(y)))
+    np_loss = float(np_clad_loss(v_norm, y))
+    np_frac = float(np_clad_fraction_pos(v_norm, y))
+
+    np.testing.assert_allclose(tf_loss, np_loss, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(tf_frac, np_frac, rtol=1e-5, atol=1e-6)

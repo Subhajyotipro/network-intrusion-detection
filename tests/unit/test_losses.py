@@ -234,3 +234,31 @@ def test_edge_cases_and_non_finite_inputs():
     x_inf = tf.constant([[np.inf, 1.0]], dtype=tf.float32)
     with pytest.raises(ValueError, match="non-finite"):
         clad_loss(x_inf, y_one)
+
+
+def test_identical_batch_finite_loss_and_no_self_pairs():
+    """Verify a batch of identical vectors yields finite loss and 0 self-pairs counted (DV16)."""
+    bsz = 10
+    # All vectors identical and benign
+    x_clad = tf.ones((bsz, 8), dtype=tf.float32)
+    y_clad = tf.zeros((bsz,), dtype=tf.int32)
+
+    l_clad = clad_loss(x_clad, y_clad).numpy()
+    f_clad = clad_fraction_pos(x_clad, y_clad).numpy()
+    assert np.isfinite(l_clad) and l_clad >= 0.0
+    assert np.isclose(f_clad, 0.0)
+
+    # In CLOSR with identical embeddings
+    x_closr = tf.ones((bsz, 4, 16), dtype=tf.float32)
+    y_closr = tf.zeros((bsz,), dtype=tf.int32)
+
+    l_closr = closr_loss(x_closr, y_closr).numpy()
+    f_closr = closr_fraction_pos(x_closr, y_closr).numpy()
+    assert np.isfinite(l_closr) and l_closr >= 0.0
+    assert np.isclose(f_closr, 0.0)
+
+    # NumPy reference float64 equivalence without self-pair counting
+    l_np = np_clad_loss(x_clad.numpy(), y_clad.numpy())
+    f_np = np_clad_fraction_pos(x_clad.numpy(), y_clad.numpy())
+    assert np.isfinite(l_np) and l_np >= 0.0
+    assert np.isclose(f_np, 0.0)

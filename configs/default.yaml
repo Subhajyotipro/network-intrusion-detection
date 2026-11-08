@@ -32,6 +32,9 @@ hidden:
 dropout: 0.1
 residual: false
 init: "torch_default"
+batch_norm: false
+bn_momentum: 0.9
+bn_epsilon: 0.00001
 margin: 1.0
 squared: true
 

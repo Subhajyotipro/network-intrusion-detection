@@ -38,8 +38,6 @@ def np_cossim(a: np.ndarray, b: Optional[np.ndarray] = None) -> np.ndarray:
         b_norm = a_norm.copy()
     similarity = a_norm @ b_norm.T
     dists = (1.0 - similarity) / 2.0
-    if b is None:
-        np.fill_diagonal(dists, 0.0)
     return dists
 
 

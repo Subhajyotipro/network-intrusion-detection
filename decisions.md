@@ -413,6 +413,7 @@ Everything else: decide using this file, log it, continue. A failing component a
 | DV13 | Upstream drops zero-columns across entire dataset prior to splitting | All-zero column mask computed strictly on train split (`x_train`) and applied to val/test/zero-day | Prevents test and zero-day data leakage into feature selection (§5.1, §12.11) |
 | DV14 | Upstream `load_data.py` uses `df.dropna()` dropping rows with missing or infinite values | Replace ±inf with NaN and impute using training column medians (`_clean_and_scale`) | Preserves full sample flow count across splits while adhering to train-only statistics |
 | DV15 | Upstream regenerates splits in memory without on-disk persistence | Save split indices (`train`, `val`, `test`) to compressed NPZ files via `save_split_indices` | Guarantees exact split persistence, reproducibility, and verifiable zero-leakage partitions (§5.1) |
+| DV16 | Upstream masks self-pairs with `dist > eps` | We zero the diagonal explicitly (`tf.linalg.set_diag`) before masking | Float32 roundoff on unit vectors can leave self-distance above eps, erroneously counting self-pairs in `n_sim` |
 
 ## Appendix C — Where AGENTS.md points to this file
 

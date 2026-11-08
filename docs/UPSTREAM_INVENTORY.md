@@ -166,6 +166,40 @@ Every argument from `train_clad.py` and `train_closr.py` is tabulated below with
      `parser.add_argument("--squared", type=bool, default=True, ...)`
    - Passing `--residual False` or `--squared False` in standard Python argparse results in `True` because any non-empty string evaluates to `True`. Handled in our port via YAML config (`yaml.safe_load`).
 
+6. **Exact Model Signatures, Activations, and Norm Layers (`model/model.py`):**
+   - **`DenseBlock`** (`model/model.py` lines 60–98):
+     `DenseBlock(in_dim, out_dim=None, dropout=0.0, dropout_layer=nn.Dropout, activation=nn.ReLU, residual=False, layer_scale=None, layernorm=None, bias=True)`.
+     Contains `nn.Sequential(Linear, activation(), norm_layer(out_dim), dropout_layer(dropout))`.
+     Notice `norm_layer = layernorm or nn.Identity`.
+     There is **NO BatchNorm** anywhere in upstream `model/model.py` or training entry points.
+     Activation is **`nn.ReLU`**, NOT `LeakyReLU`.
+   - **`Residual`** (`model/model.py` lines 11–51):
+     `Residual(layer, in_dim, out_dim=None, layer_scale=None)`.
+     If `in_dim == out_dim`, `self.resize = nn.Identity()`.
+     If `in_dim != out_dim`, `self.resize = nn.Linear(in_dim, out_dim)`.
+   - **`ContrastiveMLP` (CLAD Model)** (`model/model.py` lines 177–243):
+     `ContrastiveMLP(d_in, neurons, activation=nn.ReLU, dropout=0.0, residual=[], norm_layer=nn.Identity, ...)`.
+     Defaults `final_layer_activation=None` $\implies$ `nn.Identity` (no activation after last backbone layer).
+     Linear projection head `self.proj = nn.Linear(neurons[-1], d_out)`.
+     Output is L2-normalized: `F.normalize(x, dim=-1)`. Output shape: `[B, d_out]`.
+   - **`CLOSRMLP` (CLOSR Model)** (`model/model.py` lines 246–300):
+     `CLOSRMLP(n_classes, neurons, d_out, *args, activation=nn.ReLU, mlp_projection=False, **kwargs)`.
+     Calls `super().__init__(*args, n_classes=n_classes, neurons=neurons, activation=activation, final_layer_activation=activation, **kwargs)`.
+     `final_layer_activation=nn.ReLU` $\implies$ `nn.ReLU` activation is applied after the last backbone layer.
+     Projection head: `nn.Linear(neurons[-1], d_out * n_classes)`, reshaped to `[B, n_classes, d_out]` and L2-normalized.
+
+7. **Exact Loss Signatures and Distance Metrics (`losses/` & `util/distance.py`):**
+   - **`cossim` / `cosdist`** (`util/distance.py` lines 11–45):
+     $D(u, v) = \frac{1 - \text{sim}(u, v)}{2} \in [0, 1]$.
+     Does **NOT** zero the diagonal. Self-distance in float64 is $\sim 10^{-16}$.
+   - **`CLADLoss` / `clad_calc`** (`losses/clad_loss.py` lines 11–74):
+     `clad_calc(x1, target_class, y, x2=None, margin=1.0, distance_metric=cossim, return_frac_pos=False, squared=True, alpha=0.5, eps=1e-8)`.
+     Asymmetric loss: attractive pull on similar pairs only where $y_i = y_j = \text{target\_class}$ ($0$ for benign).
+     Filters similar self-pairs with `sim_dists > eps` (`eps=1e-8`).
+   - **`CLOSRLoss` / `loss_calc`** (`losses/closr_loss.py` lines 11–71):
+     `loss_calc(dists, y, target_class, margin, eps=1e-6, squared=True, alpha=0.5, return_frac_pos=False)`.
+     Filters similar pairs with `sim_dists > eps` (`eps=1e-6`).
+
 ---
 
 ## 4. Discrepancies with AGENTS.md

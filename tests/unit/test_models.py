@@ -17,9 +17,9 @@ import numpy as np
 import pytest
 import tensorflow as tf
 
-from nids.config import get_default_config, load_config
+from nids.config import Config, get_default_config, load_config
 from nids.losses import clad_loss, closr_loss
-from nids.models import CLOSRMLP, ContrastiveMLP, get_model
+from nids.models import CLOSRMLP, ContrastiveMLP, ResidualBlock, get_model, mlp
 
 
 @pytest.mark.parametrize("d_in", [8, 72])
@@ -155,6 +155,68 @@ def test_batch_size_one_and_config_get_model():
     assert out_one.shape == (1, cfg.n_classes, cfg.d_out)
     np.testing.assert_allclose(tf.norm(out_one, axis=-1).numpy(), 1.0, atol=1e-5)
 
+    # CLAD model via get_model
+    cfg_clad = get_default_config("clad")
+    model_clad = get_model(cfg_clad, d_in=8)
+    out_clad = model_clad(tf.random.normal([1, 8]), training=False)
+    assert out_clad.shape == (1, cfg_clad.d_out)
+    np.testing.assert_allclose(tf.norm(out_clad, axis=-1).numpy(), 1.0, atol=1e-5)
+
     # CLI override --set residual=false works cleanly
     cfg_override = load_config(overrides=["residual=false"])
     assert cfg_override.residual is False
+
+
+def test_residual_skip_connection_mechanics_and_gradients():
+    """Verify residual=True with in_dim==out_dim (Identity) and in_dim!=out_dim (Dense)."""
+    # 1. in_dim == out_dim: skip must be Identity
+    block_same = ResidualBlock(in_dim=16, out_dim=16, residual=True)
+    assert isinstance(block_same.resize, tf.keras.layers.Identity)
+    x_same = tf.Variable(tf.ones([4, 16], dtype=tf.float32))
+    with tf.GradientTape() as tape:
+        out_same = block_same(x_same)
+        loss_same = tf.reduce_sum(out_same)
+    assert out_same.shape == (4, 16)
+    grads_same = tape.gradient(loss_same, block_same.trainable_variables)
+    assert all(g is not None and tf.reduce_all(tf.math.is_finite(g)) for g in grads_same)
+
+    # 2. in_dim != out_dim: skip must be Dense projection
+    block_diff = ResidualBlock(in_dim=8, out_dim=16, residual=True)
+    assert isinstance(block_diff.resize, tf.keras.layers.Dense)
+    x_diff = tf.Variable(tf.ones([4, 8], dtype=tf.float32))
+    with tf.GradientTape() as tape:
+        out_diff = block_diff(x_diff)
+        loss_diff = tf.reduce_sum(out_diff)
+    assert out_diff.shape == (4, 16)
+    grads_diff = tape.gradient(loss_diff, block_diff.trainable_variables)
+    assert len(grads_diff) == 4  # dense kernel/bias + resize kernel/bias
+    assert all(g is not None and tf.reduce_all(tf.math.is_finite(g)) for g in grads_diff)
+
+    # 3. Full CLOSR model with residual=True
+    cfg = Config(model_kind="closr", d_in=12, hidden=[16, 16], residual=True, d_out=8, n_classes=3)
+    model_res = get_model(cfg)
+    out_res = model_res(tf.random.normal([2, 12]))
+    assert out_res.shape == (2, 3, 8)
+
+
+def test_models_error_handling_and_edge_cases():
+    """Verify missing d_in, unknown model kind, empty hidden layers, and mlp d_out."""
+    # Missing d_in
+    cfg_no_din = Config(d_in=None)
+    with pytest.raises(ValueError, match="d_in must be provided"):
+        get_model(cfg_no_din)
+
+    # Unknown model_kind
+    cfg_bad = Config(d_in=8, model_kind="transformer")
+    with pytest.raises(ValueError, match="Unknown model_kind"):
+        get_model(cfg_bad)
+
+    # Empty hidden list in ContrastiveMLP
+    clad_no_hidden = ContrastiveMLP(d_in=8, hidden=[], d_out=4)
+    out = clad_no_hidden(tf.random.normal([2, 8]))
+    assert out.shape == (2, 4)
+
+    # mlp with explicit d_out
+    m = mlp(d_in=4, hidden=[8], d_out=16)
+    out_mlp = m(tf.random.normal([2, 4]))
+    assert out_mlp.shape == (2, 16)

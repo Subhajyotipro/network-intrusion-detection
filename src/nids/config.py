@@ -85,6 +85,7 @@ class Config:
     # Optimizer & Scheduler
     batch_size: int = 4096
     weight_decay: float = 0.0403709
+    adam_eps: float = 1e-8
     lr_init: float = 1e-6
     lr_peak: float = 1e-5
     lr_final: float = 1e-6
@@ -94,6 +95,7 @@ class Config:
     seeds: list[int] = field(default_factory=lambda: [1, 2, 3])
     smoke: bool = False
     max_batches: Optional[int] = None
+    log_every: int = 10
 
     # Inference & Calibration
     scorer: str = "upstream"

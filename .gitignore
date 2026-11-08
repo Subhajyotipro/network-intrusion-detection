@@ -45,7 +45,8 @@ wheels/
 *.pth
 *.pt.tar
 data/*.csv
-weights/*.tar
+weights/*
+!weights/.gitkeep
 results/weights/
 
 # Testing & Coverage

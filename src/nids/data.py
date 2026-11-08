@@ -19,7 +19,7 @@ import hashlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator, Optional
+from typing import Any, Generator, Optional
 
 import numpy as np
 import pandas as pd
@@ -78,25 +78,20 @@ class DatasetSplits:
 def _clean_and_scale(x_train: np.ndarray, *others: Optional[np.ndarray]) -> tuple[np.ndarray, ...]:
     """Fit zero-mask, imputer, and scaler on train only; transform all passed arrays (DV13)."""
     mask = ~np.all(x_train == 0, axis=0)
-    x_tr = x_train[:, mask]
-    x_tr = np.where(np.isneginf(x_tr) | np.isposinf(x_tr), np.nan, x_tr)
-    col_medians = np.nan_to_num(np.nanmedian(x_tr, axis=0), nan=0.0)
-    inds = np.where(np.isnan(x_tr))
-    x_tr[inds] = np.take(col_medians, inds[1])
+
+    def _prep(arr: np.ndarray, med: np.ndarray) -> np.ndarray:
+        c = np.where(np.isneginf(arr[:, mask]) | np.isposinf(arr[:, mask]), np.nan, arr[:, mask])
+        inds = np.where(np.isnan(c))
+        c[inds] = np.take(med, inds[1])
+        return c
+
+    x_raw = np.where(
+        np.isneginf(x_train[:, mask]) | np.isposinf(x_train[:, mask]), np.nan, x_train[:, mask]
+    )
+    medians = np.nan_to_num(np.nanmedian(x_raw, axis=0), nan=0.0)
     scaler = StandardScaler()
-    scaled_tr = scaler.fit_transform(x_tr)
-
-    scaled_others: list[Optional[np.ndarray]] = []
-    for x in others:
-        if x is None:
-            scaled_others.append(None)
-            continue
-        xc = x[:, mask]
-        xc = np.where(np.isneginf(xc) | np.isposinf(xc), np.nan, xc)
-        inds_x = np.where(np.isnan(xc))
-        xc[inds_x] = np.take(col_medians, inds_x[1])
-        scaled_others.append(scaler.transform(xc))
-
+    scaled_tr = scaler.fit_transform(_prep(x_train, medians))
+    scaled_others = [None if x is None else scaler.transform(_prep(x, medians)) for x in others]
     return (scaled_tr, *scaled_others)
 
 
@@ -115,39 +110,29 @@ def load_split_indices(archive_path: str | Path) -> dict[str, np.ndarray]:
 
 
 def _split_train_val_test(
-    n_samples: int,
-    y: np.ndarray,
-    test_ratio: float,
-    val_ratio: float,
-    seed: int,
+    n_samples: int, y: np.ndarray, test_ratio: float, val_ratio: float, seed: int
 ) -> tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
     """Compute stratified indices for test and validation carved from train remainder."""
     all_indices = np.arange(n_samples)
     if test_ratio <= 0.0:
         return all_indices, None, None
-
-    train_val_idx, test_idx = train_test_split(
+    tr_val, te = train_test_split(
         all_indices, test_size=test_ratio, random_state=seed, shuffle=True, stratify=y
     )
     if val_ratio <= 0.0:
-        return train_val_idx, None, test_idx
-
-    effective_val_ratio = val_ratio / (1.0 - test_ratio)
-    train_idx, val_idx = train_test_split(
-        train_val_idx,
-        test_size=effective_val_ratio,
-        random_state=seed + 1,
-        shuffle=True,
-        stratify=y[train_val_idx],
+        return tr_val, None, te
+    eff_val = val_ratio / (1.0 - test_ratio)
+    tr, val = train_test_split(
+        tr_val, test_size=eff_val, random_state=seed + 1, shuffle=True, stratify=y[tr_val]
     )
-    return train_idx, val_idx, test_idx
+    return tr, val, te
 
 
 def _read_features_and_labels(
-    data_path: str | Path, drop_cols: list[str], target_col: str
+    data_source: str | Path | pd.DataFrame, drop_cols: list[str], target_col: str
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    """Read CSV, drop identifier columns, and extract features and labels."""
-    df = pd.read_csv(data_path)
+    """Read CSV or DataFrame, drop identifier columns, and extract features and labels."""
+    df = data_source if isinstance(data_source, pd.DataFrame) else pd.read_csv(data_source)
     cols_to_drop = [c for c in drop_cols if c in df.columns]
     if cols_to_drop:
         df = df.drop(columns=cols_to_drop)
@@ -174,7 +159,7 @@ def _split_known_and_zero_day(
 
 
 def load_data(
-    data_path: str | Path,
+    data_path: str | Path | pd.DataFrame,
     drop_cols: Optional[list[str]] = None,
     target_col: str = "label",
     sample_thres: int = 100,
@@ -197,30 +182,18 @@ def load_data(
     x_te, y_te = (x_k[te_idx], y_k[te_idx]) if te_idx is not None else (None, None)
 
     x_tr, x_v, x_te, x_zd = _clean_and_scale(x_tr, x_v, x_te, x_zd)
-    splits = {"train": tr_idx}
-    if val_idx is not None:
-        splits["val"] = val_idx
+    splits = {"train": tr_idx, **({"val": val_idx} if val_idx is not None else {})}
     if te_idx is not None:
         splits["test"] = te_idx
 
     if results_dir is not None:
-        key = f"{n_rows}_{split_seed}_{test_ratio}_{val_ratio}_{sample_thres}"
-        h = hashlib.sha256(key.encode("utf-8")).hexdigest()[:12]
+        h = hashlib.sha256(
+            f"{n_rows}_{split_seed}_{test_ratio}_{val_ratio}_{sample_thres}".encode()
+        ).hexdigest()[:12]
         save_split_indices(splits, Path(results_dir) / "splits" / f"{h}.npz")
 
     return DatasetSplits(
-        x_train=x_tr,
-        y_train=y_tr,
-        x_val=x_v,
-        y_val=y_v,
-        x_test=x_te,
-        y_test=y_te,
-        x_zd=x_zd,
-        y_zd=y_zd,
-        zd_names=zd_names,
-        class_map=cmap,
-        split_indices=splits,
-        d_in=x_tr.shape[1],
+        x_tr, y_tr, x_v, y_v, x_te, y_te, x_zd, y_zd, zd_names, cmap, splits, x_tr.shape[1]
     )
 
 
@@ -251,14 +224,36 @@ def generate_synthetic_dataset(
         df_class["flow_id"] = [f"flow_{flow_counter + i}" for i in range(count)]
         df_class["src_addr"], df_class["dst_addr"] = "192.168.1.10", "10.0.0.1"
         df_class["src_port"] = rng.integers(1024, 65535, size=count)
-        df_class["dst_port"], df_class["ip_prot"] = 80, 6
-        df_class["timestamp"] = "2017-07-05 09:00:00"
+        df_class["dst_port"] = 80
+        df_class["ip_prot"], df_class["timestamp"] = 6, "2017-07-05 09:00:00"
         df_class["label"] = label
         flow_counter += count
         dfs.append(df_class)
 
     full_df = pd.concat(dfs, ignore_index=True)
     return full_df.sample(frac=1.0, random_state=seed).reset_index(drop=True)
+
+
+def generate_synthetic_data(
+    cfg: Optional[Any] = None,
+    num_samples: int = 200,
+    seed: int = 39058032,
+    d_in: int = 72,
+    val_ratio: float = 0.0,
+) -> DatasetSplits:
+    """Generate synthetic DatasetSplits for testing, smoke runs, and synthetic fallback."""
+    s = getattr(cfg, "seed", seed)
+    feat_dim = getattr(cfg, "d_in", None) or d_in or 72
+    vr = getattr(cfg, "val_ratio", val_ratio)
+    st = getattr(cfg, "sample_thres", 100)
+    st = max(2, num_samples // 2) if num_samples <= st else st
+    df = generate_synthetic_dataset(
+        n_samples_known=num_samples,
+        n_samples_zd=max(1, num_samples // 10),
+        n_features=feat_dim,
+        seed=s,
+    )
+    return load_data(df, sample_thres=st, val_ratio=vr, split_seed=s)
 
 
 def class_balanced_sampler(

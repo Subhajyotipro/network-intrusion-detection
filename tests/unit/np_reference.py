@@ -187,3 +187,68 @@ def np_closr_fraction_pos(
         )
         fracs.append(f_c)
     return float(np.mean(fracs))
+
+
+def np_warmup_cosine_schedule(
+    step: int,
+    start_val: float,
+    end_val: float,
+    ref_val: float,
+    T_max: int,
+    warmup_steps: int,
+    plateau: bool = True,
+) -> float:
+    """Independent NumPy transcription of upstream WarmupCosineSchedule in util/schedules.py."""
+    if step <= 0:
+        return float(start_val)
+    if plateau and step > T_max:
+        return float(end_val)
+    if step < warmup_steps:
+        progress = float(step) / float(max(1, warmup_steps))
+        val = start_val + progress * (ref_val - start_val)
+    else:
+        progress = float(step - warmup_steps) / float(max(1, T_max - warmup_steps))
+        val = end_val + (ref_val - end_val) * 0.5 * (1.0 + np.cos(progress * np.pi))
+        if ref_val <= end_val:
+            val = min(end_val, val)
+        else:
+            val = max(end_val, val)
+    return float(val)
+
+
+def np_adamw_step(
+    param: np.ndarray,
+    grad: np.ndarray,
+    m: np.ndarray,
+    v: np.ndarray,
+    step: int,
+    lr: float,
+    weight_decay: float,
+    beta1: float = 0.9,
+    beta2: float = 0.999,
+    eps: float = 1e-8,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Independent NumPy transcription of one PyTorch AdamW step with decoupled weight decay."""
+    param = param.astype(np.float64)
+    grad = grad.astype(np.float64)
+    m = m.astype(np.float64)
+    v = v.astype(np.float64)
+
+    # 1. Decoupled weight decay: w = w * (1 - lr * weight_decay)
+    param_decayed = param * (1.0 - lr * weight_decay)
+
+    # 2. Update biased 1st and 2nd moment estimates
+    m_next = beta1 * m + (1.0 - beta1) * grad
+    v_next = beta2 * v + (1.0 - beta2) * (grad**2)
+
+    # 3. Compute bias-corrected estimates
+    bias_correction1 = 1.0 - (beta1**step)
+    bias_correction2 = 1.0 - (beta2**step)
+    m_hat = m_next / bias_correction1
+    v_hat = v_next / bias_correction2
+
+    # 4. Update parameter using PyTorch epsilon placement: lr * m_hat / (sqrt(v_hat) + eps)
+    denom = np.sqrt(v_hat) + eps
+    param_next = param_decayed - lr * (m_hat / denom)
+
+    return param_next, m_next, v_next

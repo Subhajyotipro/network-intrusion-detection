@@ -1,0 +1,98 @@
+{
+  "metrics": {
+    "final_loss": 0.36080852150917053,
+    "epoch_losses": [
+      0.3643074333667755,
+      0.36080852150917053
+    ],
+    "final_frac_pos": 1.0
+  },
+  "config": {
+    "data_path": "data/lycos.csv",
+    "results_dir": "results",
+    "weights_dir": "weights",
+    "upstream_dir": "third_party/CLOSR",
+    "split_seed": 39058032,
+    "test_ratio": 0.5,
+    "val_ratio": 0.0,
+    "sample_thres": 100,
+    "drop_cols": [
+      "flow_id",
+      "src_addr",
+      "src_port",
+      "dst_addr",
+      "dst_port",
+      "ip_prot",
+      "timestamp"
+    ],
+    "class_zero": "benign",
+    "model_kind": "closr",
+    "d_in": null,
+    "d_out": 64,
+    "n_classes": 12,
+    "hidden": [
+      1024,
+      1024,
+      1024
+    ],
+    "dropout": 0.1,
+    "residual": false,
+    "init": "torch_default",
+    "margin": 1.0,
+    "squared": true,
+    "batch_size": 4096,
+    "weight_decay": 0.0403709,
+    "adam_eps": 1e-08,
+    "lr_init": 1e-06,
+    "lr_peak": 1e-05,
+    "lr_final": 1e-06,
+    "warmup_frac": 0.1,
+    "epochs": 2,
+    "seed": 1,
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "smoke": false,
+    "max_batches": null,
+    "log_every": 10,
+    "scorer": "upstream",
+    "grid_size": 200,
+    "target_acceptance": [
+      0.95,
+      0.99
+    ],
+    "f_beta": 1.0,
+    "max_known_rejection": 0.05,
+    "max_benign_fp": 0.01,
+    "siamese_conf_grid": 10,
+    "skip_if_confident_benign": false,
+    "support_mode": "prototype",
+    "k_exemplars": 5,
+    "warmup_runs": 20,
+    "timed_runs": 200,
+    "bench_batch_sizes": [
+      1,
+      32,
+      1024
+    ],
+    "tsne_max_points": 5000,
+    "device": "auto",
+    "deterministic": false
+  },
+  "seed": 1,
+  "git_commit": "e181fc822721024f10c9a7a3b86fac2c458d74b6",
+  "versions": {
+    "python": "3.11.9",
+    "tensorflow": "2.21.0",
+    "keras": "3.15.1",
+    "numpy": "2.4.6",
+    "pandas": "3.1.1",
+    "sklearn": "1.9.1"
+  },
+  "device": "cpu",
+  "dataset": "synthetic",
+  "epochs": 2,
+  "reduced_run": true
+}

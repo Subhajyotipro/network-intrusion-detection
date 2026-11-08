@@ -163,7 +163,7 @@ One checkpoint bundle per run: model weights (Keras weights file, e.g. `.weights
 - AdamW: Keras `keras.optimizers.AdamW` (decoupled weight decay matching PyTorch AdamW semantics), upstream warm-up + cosine schedule (per-step schedule), small running-mean meter, periodic logging through `logging`.
 - Step the schedule at the same granularity as upstream (per step, verified in `train_closr.py`).
 - `smoke=true` → 2 epochs, `max_batches=3`.
-- Resume: load weights, optimizer state, and step; continue from saved step. Test: train 2 epochs + resume 1 vs 3 straight → equal loss within 1e-6.
+- Resume: load weights, optimizer state, and step; continue from saved step. Note on dropout RNG: Keras 3 `Dropout` layer's `seed_generator_state` is not serialized in `model.save_weights` (`.weights.h5`). With `dropout > 0`, training resume is statistically equivalent; for bitwise-identical next-step loss across resume, `dropout=0` is used. Test: train 2 epochs + resume 1 vs 3 straight with `dropout=0` → equal loss within 1e-6.
 - Sampler / Data loader: a simple NumPy class-balanced batch generator (optionally wrapped in `tf.data`). Clamp `batch_size = min(batch_size, len(train))` and use `drop_last=False` when the dataset is smaller than one batch (AGENTS §12.8). Test with a class smaller than the batch.
 
 ### Inference and metrics (PR1-T06)
@@ -414,6 +414,7 @@ Everything else: decide using this file, log it, continue. A failing component a
 | DV14 | Upstream `load_data.py` uses `df.dropna()` dropping rows with missing or infinite values | Replace ±inf with NaN and impute using training column medians (`_clean_and_scale`) | Preserves full sample flow count across splits while adhering to train-only statistics |
 | DV15 | Upstream regenerates splits in memory without on-disk persistence | Save split indices (`train`, `val`, `test`) to compressed NPZ files via `save_split_indices` | Guarantees exact split persistence, reproducibility, and verifiable zero-leakage partitions (§5.1) |
 | DV16 | Upstream masks self-pairs with `dist > eps` | We zero the diagonal explicitly (`tf.linalg.set_diag`) before masking | Float32 roundoff on unit vectors can leave self-distance above eps, erroneously counting self-pairs in `n_sim` |
+| DV17 | PyTorch AdamW epsilon placement $\frac{\hat{m}}{\sqrt{\hat{v}} + \epsilon}$ | Keras AdamW folds bias-correction into numerator $\frac{\alpha \cdot m}{\sqrt{v} + \epsilon}$ | Built-in Keras optimizer formulation; epsilon set to upstream `1e-8` via Config; expected difference negligible |
 
 ## Appendix C — Where AGENTS.md points to this file
 

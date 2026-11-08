@@ -27,4 +27,5 @@ This file tracks all pre-registered and runtime deviations from `AGENTS.md` spec
 | DV14 | Upstream `load_data.py` uses `df.dropna()` dropping rows with missing or infinite values | Replace ±inf with NaN and impute using training column medians (`_clean_and_scale`) | Preserves full sample flow count across splits while adhering to train-only statistics |
 | DV15 | Upstream regenerates splits in memory without on-disk persistence | Save split indices (`train`, `val`, `test`) to compressed NPZ files via `save_split_indices` | Guarantees exact split persistence, reproducibility, and verifiable zero-leakage partitions (§5.1) |
 | DV16 | Upstream masks self-pairs with `dist > eps` | We zero the diagonal explicitly (`tf.linalg.set_diag`) before masking | Float32 roundoff on unit vectors can leave self-distance above eps, erroneously counting self-pairs in `n_sim` |
+| DV17 | PyTorch AdamW epsilon placement $\frac{\hat{m}}{\sqrt{\hat{v}} + \epsilon}$ | Keras AdamW folds bias-correction into numerator $\frac{\alpha \cdot m}{\sqrt{v} + \epsilon}$ | Built-in Keras optimizer formulation; epsilon set to upstream `1e-8` via Config; expected difference negligible |
 

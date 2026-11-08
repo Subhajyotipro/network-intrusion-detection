@@ -38,6 +38,7 @@ squared: true
 # Optimizer & Schedule
 batch_size: 4096
 weight_decay: 0.0403709
+adam_eps: 1.0e-8
 lr_init: 1.0e-6
 lr_peak: 1.0e-5
 lr_final: 1.0e-6
@@ -50,6 +51,7 @@ seeds:
   - 3
 smoke: false
 max_batches: null
+log_every: 10
 
 # Inference & Calibration
 scorer: "upstream"

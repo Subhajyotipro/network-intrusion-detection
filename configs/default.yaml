@@ -77,6 +77,7 @@ bench_batch_sizes:
 # Visualization
 tsne_max_points: 5000
 
-# Device
+# Device & Determinism
 device: "auto"
+deterministic: false
 

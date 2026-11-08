@@ -139,11 +139,13 @@ def test_din_defaults_to_none_and_device_resolution():
     assert cfg_din.d_in == 72
 
     assert resolve_device("cpu") == "cpu"
-    assert resolve_device("cuda") == "cuda"
-    with patch("torch.cuda.is_available", return_value=False):
+    with patch("tensorflow.config.list_physical_devices", return_value=["/physical_device:GPU:0"]):
+        assert resolve_device("gpu") == "gpu"
+        assert resolve_device("auto") == "gpu"
+    with patch("tensorflow.config.list_physical_devices", return_value=[]):
         assert resolve_device("auto") == "cpu"
-    with patch("torch.cuda.is_available", return_value=True):
-        assert resolve_device("auto") == "cuda"
+        with pytest.raises(ValueError, match="no GPU found"):
+            resolve_device("gpu")
 
     with pytest.raises(ValueError, match="Invalid device"):
         resolve_device("tpu")
@@ -157,8 +159,11 @@ def test_get_run_metadata():
     assert "seed" in meta and meta["seed"] == cfg.seed
     assert "git_commit" in meta
     assert "device" in meta
+    assert "timestamp" in meta
     assert "versions" in meta
-    assert "torch" in meta["versions"]
+    assert "tensorflow" in meta["versions"]
+    assert "keras" in meta["versions"]
+    assert "torch" not in meta["versions"]
     assert "numpy" in meta["versions"]
     assert "pandas" in meta["versions"]
     assert "sklearn" in meta["versions"]

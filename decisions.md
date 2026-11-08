@@ -26,17 +26,18 @@
 
 | # | Rule |
 |---|---|
-| 1 | Plain functions over classes. Classes only for `nn.Module`, dataclasses (config, `ClassMap`), `Gatekeeper`/`Cascade`. |
+| 1 | Plain functions over classes. Classes only for `tf.keras.Model` / `tf.keras.layers.Layer` (when needed), dataclasses (config, `ClassMap`), `Gatekeeper`/`Cascade`. |
 | 2 | No abstract base classes, registries, decorators, plugin systems, or factories. Pluggable things (scorers, threshold strategies) are a `dict[str, Callable]`. |
 | 3 | No new frameworks: no Lightning, Hydra, MLflow, W&B, Optuna, Ray, Docker. |
 | 4 | Functions ≤ 40 lines, files ≤ 300 lines. |
 | 5 | Type hints and a one-line docstring on every public function. |
-| 6 | Allowed libraries: `pathlib`, `logging`, `json`, `numpy`, `pandas`, `torch`, `sklearn`, `matplotlib`, `pyyaml`, `pytest`, `pytest-cov`, `pytest-timeout`, `ruff`. Nothing else unless upstream's `requirements.txt` already needs it. `pytest-timeout` is configured in `pyproject.toml` (for example a 120-second timeout per test, stored as a config value) so a hanging test cannot freeze the loop; the "real" marker is also registered in `pyproject.toml`. |
+| 6 | Allowed libraries: `pathlib`, `logging`, `json`, `numpy`, `pandas`, `tensorflow`, `sklearn`, `matplotlib`, `pyyaml`, `pytest`, `pytest-cov`, `pytest-timeout`, `ruff`. Nothing else unless upstream's `requirements.txt` already needs it. PyTorch is strictly excluded from runtime code and appears only in `requirements-reference.txt` for numerical reference tests. `pytest-timeout` is configured in `pyproject.toml` (120-second timeout per test) so a hanging test cannot freeze the loop; markers `real` and `reference` are registered in `pyproject.toml`. |
 | 7 | Logging uses the standard `logging` module (AGENTS §5.4). **Only** the `demo` subcommand may `print`, because its output is for a human reader. |
 | 8 | **No hard-coded paths or magic numbers** (AGENTS §5.4): every number, path, grid size, and default lives in `Config` (D4.5). |
 | 9 | No dead code, commented-out blocks, or "future use" parameters. |
 | 10 | Fail loudly: `assert`/`raise ValueError` with a clear message on shape, label, or class-map problems. No silent coercion. |
-| 11 | No multiprocessing, `torch.compile`, or distributed code. Mixed precision is **not implemented** (so AGENTS §6.5's "mixed precision off/on" check reduces to "off"; recorded in Appendix B). |
+| 11 | No multiprocessing, `tf.distribute`, or distributed code. Mixed precision is **not implemented** (so AGENTS §6.5's "mixed precision off/on" check reduces to "off"; recorded in Appendix B). |
+| 12 | **Framework policy:** All runtime code (`src/nids`, `scripts`) and normal tests strictly use TensorFlow with `tf.keras`. No file in `src/` or `scripts/` may import `torch`, directly or indirectly (enforced by AST scan, unit tests, and ruff banned-api rule). Porting upstream code means re-implementing in TensorFlow matching upstream mathematics and defaults. |
 
 ---
 
@@ -73,16 +74,16 @@ docs/            # UPSTREAM_INVENTORY.md DEVIATIONS.md BUGLOG.md DATA_CARD.md re
 
 ## D3. Environment and the "correct on first run" protocol
 
-1. Python 3.10+. `requirements.txt` starts from upstream's file with versions pinned; add `scikit-learn`, `pandas`, `matplotlib`, `pyyaml`, `pytest`, `pytest-cov`, `pytest-timeout`, `ruff`. The default test command is `pytest -x -q -m "not real"`.
-2. Before using a library function you are not certain about, check the **installed** version's signature (`help(...)` or a one-line `python -c`). Do not rely on memory for sklearn/torch argument names.
+1. Python 3.10+. `requirements.txt` pins `tensorflow` (no `torch`). Do not install `tensorflow-metal` or GPU plugins unless requested. The default test command is `pytest -x -q -m "not real and not reference"`. A separate reference test command is `pip install -r requirements-reference.txt; pytest -m reference`.
+2. Before using a library function you are not certain about, check the **installed** version's signature (`help(...)` or a one-line `python -c`). Do not rely on memory for sklearn/tensorflow argument names.
 3. After **every file created or edited**, run in order and fix before moving on:
    1. `python -m py_compile <file>`
    2. `ruff check <file>` and `ruff format <file>`
    3. `python -c "import nids.<module>"`
    4. `pytest -x -q <matching test file>`
-   After finishing each task (and again before writing each PR summary report), run the automatic test-and-repair loop: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real"`. If any test fails, diagnose the root cause, fix the code, and rerun the whole suite until green (cap: 5 fix-iterations per distinct failing test).
-4. Run `pytest -x -q -m "not real"` (full suite) before every commit, repeating the test-and-repair loop until green. If real data exists, also run `pytest -m real` once at the end of each PR. Suite target: **< 2 minutes on CPU**.
-5. Device is selected in exactly one place (`config.py`): CUDA if available else CPU. All code receives the device from config. Every script must run on CPU.
+   After finishing each task (and again before writing each PR summary report), run the automatic test-and-repair loop: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real and not reference"`. If any test fails, diagnose the root cause, fix the code, and rerun the whole suite until green (cap: 5 fix-iterations per distinct failing test).
+4. Run `pytest -x -q -m "not real and not reference"` (full suite) before every commit, repeating the test-and-repair loop until green. If real data exists, also run `pytest -m real` once at the end of each PR. Suite target: **< 2 minutes on CPU**.
+5. Device is selected in exactly one place (`config.py`): using TensorFlow's physical-device listing (`GPU` if available else `CPU`). Passing `--set device=cpu` explicitly hides GPUs from TensorFlow via `tf.config.set_visible_devices([], "GPU")`. All code receives the device from config. Every script must run on CPU.
 6. One commit per task: `PRn-Txx: short title`. Do not commit failing tests, except documented OPEN bugs marked `xfail` with a reason.
 7. If the real dataset is missing: build and use the synthetic generator, mark real-data tasks `BLOCKED: dataset`, and tell the human which file goes where (AGENTS §5.3).
 8. **CPU-only real-data training:** 200 epochs at batch 4096 may be impractical. Run with a reduced `epochs` (via `--set epochs=N`), store `epochs` and `reduced_run=true` in the result JSON, and mark PR1-T08 `PARTIAL` with the real numbers. Never present reduced-epoch numbers as full reproduction.
@@ -130,9 +131,10 @@ docs/            # UPSTREAM_INVENTORY.md DEVIATIONS.md BUGLOG.md DATA_CARD.md re
   - bench: `warmup_runs` (20), `timed_runs` (200), `bench_batch_sizes` ([1, 32, 1024])
   - viz: `tsne_max_points` (5000)
 - `lr_init`, `lr_peak`, `lr_final`, `warmup_frac`: read upstream's `train_closr.py` and use its values (AGENTS §12.3 lists the init as 1e-6, peak 1e-5).
+- Metadata versions recorded: `tensorflow`, `keras`, `numpy`, `pandas`, `sklearn`, `python` (no `torch`).
 
 ### D4.6 Checkpoints
-One dict saved with `torch.save`: `model`, `optimizer`, `schedule_step`, `config`, `class_map`, `seed`, `extra` (centroids or Siamese support set). `load_checkpoint` returns the dict; callers rebuild the model from `config`.
+One checkpoint bundle per run: model weights (Keras weights file, e.g. `.weights.h5` or variable state), optimizer variables, schedule step, and a JSON/NPZ sidecar with `config`, `class_map`, `seed`, and `extra` (centroids or Siamese support set). `load_checkpoint` restores weights, optimizer variables, schedule step, and sidecar; reload restores identical outputs, and resume reproduces identical next-step loss.
 
 ### D4.7 Result files
 - Every run writes `results/<exp>/<model>_seed<k>.json` with: `metrics`, `config`, `seed`, `git_commit`, `versions`, `device`, `dataset` ("real" | "synthetic"), `epochs`, `reduced_run`.
@@ -145,39 +147,40 @@ One dict saved with `torch.save`: `model`, `optimizer`, `schedule_step`, `config
 ## D5. Per-component decisions
 
 ### Models and losses (PR1-T04)
-- One `mlp(d_in, hidden, d_out, dropout)` helper (`nn.Sequential`). Defaults: hidden `[1024,1024,1024]`, out 64, dropout 0.1.
-- CLOSR model: copy upstream `CLOSRMLP`; change only `d_in` (and keep the residual option if upstream has it).
-- Copy `CLADLoss` and `CLOSRLoss` unchanged except imports.
-- Numerical-match test: import upstream's module from `third_party/` **inside the test**, compute its loss on fixed seeded inputs, compare with ours (no stored magic numbers).
+- One `mlp(d_in, hidden, d_out, dropout)` helper built with Keras layers (`keras.Sequential`, `keras.layers.Dense`, `keras.layers.Dropout`). Defaults: hidden `[1024,1024,1024]`, out 64, dropout 0.1.
+- Initialisation: upstream PyTorch uses Kaiming uniform ($a=\sqrt{5}$) for linear weights and uniform for bias; Keras uses `glorot_uniform` and zero bias by default. We document this difference and can configure matching initializers where numerical equivalence is checked.
+- CLOSR model: re-implement in TensorFlow (`CLOSRMLP`), outputting L2-normalised class embeddings `[batch, n_classes, d_out]`; make `d_in` configurable.
+- Losses: re-implement `CLADLoss` and `CLOSRLoss` with TensorFlow ops (`tf.linalg.l2_normalize`, `tf.square`, `tf.reduce_sum`, `tf.maximum`, `tf.reduce_mean`).
+- Numerical-match test: import upstream's module from `third_party/` **inside a `@pytest.mark.reference` test**, compute its loss on fixed seeded inputs with PyTorch, compare with our TensorFlow loss (no stored magic numbers).
 - Unit tests (AGENTS PR1-T04 list): shapes, unit norm, finite and non-negative, gradients reach all parameters, loss drops over ~20 steps on a toy separable set, `margin` and `squared` change the value, benign/malicious asymmetry.
 
 ### Trainer (PR1-T05)
-- One `train(cfg, kind)` with a plain loop; `kind ∈ {"clad","closr","siamese","mlp"}`; the only per-kind difference is `(model, loss_fn)`.
-- AdamW, upstream warm-up + cosine schedule (copy `util/schedules.py`), upstream `AverageMeter`, periodic logging through `logging`.
-- Step the schedule at the same granularity as upstream (verify in `train_closr.py`).
+- One `train(cfg, kind)` with a plain loop using `tf.GradientTape`; `kind ∈ {"clad","closr","siamese","mlp"}`; the only per-kind difference is `(model, loss_fn)`. Pass `training=True` during training steps.
+- AdamW: Keras `keras.optimizers.AdamW` (decoupled weight decay matching PyTorch AdamW semantics), upstream warm-up + cosine schedule (per-step schedule), small running-mean meter, periodic logging through `logging`.
+- Step the schedule at the same granularity as upstream (per step, verified in `train_closr.py`).
 - `smoke=true` → 2 epochs, `max_batches=3`.
-- Resume: load the checkpoint dict, continue from the saved step. Test: train 2 epochs + resume 1 vs 3 straight → equal loss within 1e-6.
-- Sampler: upstream's class-balanced sampler. Clamp `batch_size = min(batch_size, len(train))` and use `drop_last=False` when the dataset is smaller than one batch (AGENTS §12.8). Test with a class smaller than the batch.
+- Resume: load weights, optimizer state, and step; continue from saved step. Test: train 2 epochs + resume 1 vs 3 straight → equal loss within 1e-6.
+- Sampler / Data loader: a simple NumPy class-balanced batch generator (optionally wrapped in `tf.data`). Clamp `batch_size = min(batch_size, len(train))` and use `drop_last=False` when the dataset is smaller than one batch (AGENTS §12.8). Test with a class smaller than the batch.
 
 ### Inference and metrics (PR1-T06)
-- `infer.py`: `get_embeddings` (sets `eval()`, uses `torch.no_grad`, chunked), `get_centroids`, `class_sims`, scorers dict. Port upstream; do not rewrite.
+- `infer.py`: `get_embeddings` (runs with `training=False`, no `tf.GradientTape`, chunked), `get_centroids`, `class_sims`, scorers dict.
 - `metrics.py`: `sklearn.metrics` for AUROC, average precision, PR-AUC, F1, confusion matrix; hand-write only `fpr_at_recall` (upstream direction), `open_auc = closed_acc × open_auc_score`, per-class tables. Cover every metric listed in AGENTS §2.3.
 - `safe_auroc(y, s)` returns `nan` with a logged warning when only one class is present; division by zero in recall → `nan` (AGENTS §12.12).
 - CLAD evaluation: per-attack-class AUROC split into closed-set and open-set parts with means.
 
 ### Baselines (PR1-T07)
-- **Must run:** MLP (closed-set), Isolation Forest (`sklearn`), Autoencoder (reuse upstream's if it exists, otherwise a small torch AE with reconstruction error as the score), **and every open-set baseline that exists as code upstream** (AGENTS PR1-T07).
-- Adapt upstream baselines with the smallest possible changes. If one still fails after the AGENTS §6 fix cap (5 iterations), log it OPEN, mark the row "upstream-reported", and mark the task `PARTIAL` — do not silently drop it.
-- Baselines that do not exist as code are "upstream-reported, not re-run", copied from the README table.
-- Every comparison-table row carries a column `source` = `re-run` or `upstream-reported`.
+- **Must run:** MLP (closed-set, Keras), Isolation Forest (`sklearn`), Autoencoder (re-implemented in Keras with reconstruction MSE as the anomaly score).
+- Upstream PyTorch baselines (MultiStage, DOC, OpenMax, CRSOR) are reported from upstream paper unless a faithful TensorFlow port is small. Every comparison-table row carries a column `source` = `re-run` or `upstream-reported`.
 - MLP open-set score = max softmax probability.
 
 ### Siamese Stage 2 (PR2-T02; registered as DV2)
-- If `baseline_implementations/` contains a Siamese, **adapt it** (upstream-first, per AGENTS). Otherwise:
-  - Encoder = the same `mlp` helper, 64-d, L2-normalised.
-  - Pairs are formed from **all in-batch pairs** via a label-equality mask (positive if labels match); class-balanced batches come from the shared sampler. Loss = margin contrastive loss on cosine distance, margin from config.
-  - Support set: `support_mode="prototype"` (mean normalised embedding per class from train — deterministic) or `"exemplar"` (`k_exemplars` per class using a seeded `np.random.default_rng`). Stored in the checkpoint `extra`.
+- Re-implement Siamese classifier in TensorFlow based on the upstream Siamese design (`siamese_network.py`):
+  - Shared Keras encoder, 64-d, L2-normalised.
+  - In-batch pair mask or pair sampling with class-balanced batches (DV2). Loss = margin contrastive loss on cosine distance, margin from config.
+  - Support set: `support_mode="prototype"` (mean normalised embedding per class from train — deterministic) or `"exemplar"` (`k_exemplars` per class using a seeded `np.random.default_rng`). Stored in checkpoint sidecar.
   - Prediction = argmax cosine to the support set; **confidence = max cosine**.
+- Pair-correctness test (PR2-T08): the positive mask equals `labels[:,None]==labels[None,:]` on a toy batch, so no pair mixes labels incorrectly. Support-set determinism test: build twice → identical.
+- Accuracy target ~0.9977 (upstream). If we fall short, report the real number and the gap — do not tune on test.
 - Pair-correctness test (PR2-T08): the positive mask equals `labels[:,None]==labels[None,:]` on a toy batch, so no pair mixes labels incorrectly. Support-set determinism test: build twice → identical.
 - Accuracy target ~0.9977 (upstream). If we fall short, report the real number and the gap — do not tune on test.
 
@@ -229,9 +232,9 @@ Real zero-day classes **never** enter calibration. To simulate unseen attacks wi
 - The verdict on "jointly achieves strong open-set and closed-set performance" is written from the mean ± std table and stated plainly, even if negative (AGENTS §5.5).
 
 ### Latency (PR3-T05)
-- `time.perf_counter()`, `torch.cuda.synchronize()` before and after when on CUDA. `warmup_runs` discarded, `timed_runs` measured, for each size in `bench_batch_sizes` (includes 1). Percentiles via `np.percentile`; throughput = flows/s.
+- `time.perf_counter()`. Warm-up must include TensorFlow tracing; use fixed input signatures to avoid retracing; force device sync by fetching results to NumPy before stopping the timer. `warmup_runs` discarded, `timed_runs` measured, for each size in `bench_batch_sizes` (includes 1). Percentiles via `np.percentile`; throughput = flows/s.
 - Stage-wise breakdown: preprocessing, Stage 1, Stage 2, decision logic. Cost saved by skipping Stage 2 for rejected flows is measured at the actual rejection fraction. Cascade overhead vs CLOSR-only in ms and %.
-- Run on **every available device** (CPU always; GPU too if present). Record hardware (`platform.processor()` / `torch.cuda.get_device_name`) in the JSON.
+- Run on **every available device** (CPU always; GPU too if present). Record hardware (`platform.processor()` / TensorFlow device name) in the JSON.
 
 ### Ablations (PR3-T06)
 (a) scorer, (b) threshold strategy, (c) support-set size (`k_exemplars`), (d) variant A vs B. Optional (e) number of known classes. One small table + one paragraph each, from saved results.
@@ -285,9 +288,13 @@ Real zero-day classes **never** enter calibration. To simulate unseen attacks wi
 ## D7. Testing decisions
 
 - `tests/conftest.py` builds a **tiny synthetic dataset** (e.g. 8 features, 4 known + 1 zero-day class, ~200 rows/class). Tests use small models (hidden `[32,32]`, out 8) via config overrides so training tests take seconds.
-- Real-data tests are marked `@pytest.mark.real` and skipped if the data file is absent. Register the `real` marker in `pyproject.toml` (`[tool.pytest.ini_options] markers = ["real: tests requiring the real Lycos2017 dataset"]`). Configure `pytest-timeout` in `pyproject.toml` (`timeout = 120`, a 120-second timeout per test) so a hanging test cannot freeze the loop.
+- The default test command is `pytest -x -q -m "not real and not reference"`.
+- Real-data tests are marked `@pytest.mark.real` and skipped if the data file is absent.
+- Reference tests are marked `@pytest.mark.reference` and run numerical comparisons between our TensorFlow code and upstream's PyTorch code. They import `torch` and upstream code inside the test/fixture, skip cleanly if `torch` is not installed, and are run via `pip install -r requirements-reference.txt; pytest -m reference`.
+- Register both markers (`real`, `reference`) in `pyproject.toml`. Configure `pytest-timeout` in `pyproject.toml` (`timeout = 120`, a 120-second timeout per test) so a hanging test cannot freeze the loop.
 - Required edge cases (parametrise where possible): batch size 1, single-class batch, class missing from a batch, empty accepted set, all rejected, all accepted, NaN input (pick one documented behaviour — raise a clear error — and test it).
-- Upstream-comparison tests insert `third_party/CLOSR` into `sys.path` **inside a fixture** and restore it afterward, so upstream's top-level module names (`losses`, `model`, `util`, `data`) never shadow ours. Our package never imports upstream at runtime.
+- Upstream-comparison tests insert `third_party/CLOSR` into `sys.path` **inside a fixture in reference tests only** and restore it afterward, so upstream's top-level module names (`losses`, `model`, `util`, `data`) never shadow ours. Our runtime package never imports upstream or torch.
+- A torch-free guard test in `tests/unit/test_framework.py` asserts that importing all `nids` modules does not import `torch`, and that a static scan finds no `torch` import under `src/` or `scripts/`.
 - Coverage: report `pytest --cov` for loss, data, metrics, checkpoint modules (PR1-T10); do not chase other numbers.
 
 ---
@@ -295,7 +302,7 @@ Real zero-day classes **never** enter calibration. To simulate unseen attacks wi
 ## D8. Bug-fix loop (follows AGENTS §6 exactly)
 
 1. **Automatic test-and-repair loop:**
-   - After finishing each task, and again before writing each PR summary report, run: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real"`.
+   - After finishing each task, and again before writing each PR summary report, run: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real and not reference"`.
    - On any failure: read the traceback, find the root cause, fix the code, then rerun the WHOLE suite (not only the failing test). Repeat until green.
    - **Cap: 5 fix-iterations per distinct failing test** (AGENTS §6.7). If the same error appears twice with the same fix attempt, stop repeating it and re-diagnose with a different approach (check shapes, dtypes, devices, label alignment, score direction, data leakage).
    - After the cap: mark the test `xfail` with a reason, log it `OPEN` in `docs/BUGLOG.md` with your analysis, and continue with other tasks. Do not block the PR on it.
@@ -313,11 +320,11 @@ Real zero-day classes **never** enter calibration. To simulate unseen attacks wi
 | 3 LR constants | config fields (D4.5) |
 | 4 no validation | `val_ratio` default 0.1 (D4.3) |
 | 5 label layout | `ClassMap`, zero-day = `-1`, `n_known` from map (D4.1) |
-| 6 eval mode / device | one device source (D3.5); `eval()` + `no_grad` in `get_embeddings` |
+| 6 eval mode / device | one device source (D3.5); `training=False` + no GradientTape in `get_embeddings` |
 | 7 score direction | known-ness convention (D4.2) + monotonicity test |
 | 8 sampler / tiny splits | batch-size clamp, `drop_last=False` (D5 Trainer) |
 | 9 benign = 0 | `BENIGN_ID` constant + test (D4.1) |
-| 10 checkpoints | single dict format (D4.6) |
+| 10 checkpoints | single bundle format (weights + sidecar) (D4.6) |
 | 11 leakage | train-only scaler, identifiers dropped, `val_*` inputs (D4.4, D5) |
 | 12 metric edge cases | `safe_auroc`, `nan` on undefined (D5 Metrics) |
 
@@ -345,7 +352,7 @@ Everything else: decide using this file, log it, continue. A failing component a
 
 ## D11. After each PR
 
-1. Run pytest (`pytest -x -q -m "not real"`, plus `pytest -m real` if real data exists) and `ruff check .`, executing the automatic repair loop and fixing until green (or remaining failures documented OPEN).
+1. Run pytest (`pytest -x -q -m "not real and not reference"`, plus `pytest -m real` if real data exists) and `ruff check .`, executing the automatic repair loop and fixing until green (or remaining failures documented OPEN).
 2. `python scripts/make_report.py`
 3. Write `docs/reports/PRn_summary.md` with the AGENTS §10 template and real evidence only.
 4. Commit, then **stop** and wait for the human's review.
@@ -393,6 +400,12 @@ Everything else: decide using this file, log it, continue. A failing component a
 | DV4 | §12.5 label layout | Zero-day label = `-1`, class names kept separately | Removes upstream's ordering assumption |
 | DV5 | §6.5 mixed precision off/on | Mixed precision not implemented, "off" only | Complexity; no accuracy benefit needed |
 | DV6 | PR1-T03 validation split | Validation carved from train **after** the fixed upstream test split; `val_ratio=0` for exact reproduction | Keeps the test set identical to upstream |
+| DV7 | Upstream pinned versions (`numpy==1.24.2`, `torch==2.0.1`, etc.) | Pinned modern versions (`numpy==2.4.6`, `tensorflow==2.21.0`, etc.) | Compatibility with Python 3.11 and Apple Silicon; torch moved to reference-only |
+| DV8 | AGENTS §2.3 global model defaults | Per-kind defaults (`default.yaml` for CLOSR, `clad.yaml` for CLAD) | Mirrors upstream training scripts per model kind |
+| DV9 | Upstream training seed check | Upstream sets no training seed; training seeds are `[1, 2, 3]` | Deterministic reproducibility across multiple seeds |
+| DV10 | Upstream implemented in PyTorch | All runtime code (`src/nids/`, `scripts/`) implemented in TensorFlow (`tf.keras`) | Binding framework policy requirement |
+| DV11 | PyTorch everywhere | PyTorch strictly isolated to `requirements-reference.txt` for `@pytest.mark.reference` tests | Guarantees torch-free runtime while enabling numerical validation |
+| DV12 | PyTorch baselines and Siamese | Baselines and Siamese re-implemented in TensorFlow or marked upstream-reported | Clean framework consistency; no PyTorch runtime coupling |
 
 ## Appendix C — Where AGENTS.md points to this file
 

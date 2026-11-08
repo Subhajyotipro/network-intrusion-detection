@@ -12,3 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """nids package: CLOSR -> Siamese cascade network intrusion detection system."""
+
+import os
+
+# Set default Keras home to /tmp/.keras to prevent sandbox permission issues
+os.environ.setdefault("KERAS_HOME", "/tmp/.keras")

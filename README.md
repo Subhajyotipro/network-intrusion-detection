@@ -2,7 +2,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org/)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.15+-FF6F00.svg)](https://tensorflow.org/)
 [![Paper Reference](https://img.shields.io/badge/IEEE%20TNSM-10.1109%2FTNSM.2026.3652529-success)](https://doi.org/10.1109/TNSM.2026.3652529)
 
 An advanced Network Intrusion Detection System (NIDS) combining **Contrastive Learning for Open-Set Recognition (CLOSR)** and **Siamese Metric Classification** into a high-accuracy, zero-day resilient, two-stage cascaded architecture.

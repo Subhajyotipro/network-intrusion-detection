@@ -17,7 +17,10 @@ This file tracks all pre-registered and runtime deviations from `AGENTS.md` spec
 
 | ID | AGENTS.md / decisions.md says | We do instead | Why |
 |---|---|---|---|
-| DV7 | Upstream pins: `numpy==1.24.2`, `pandas==2.0.0`, `scikit-learn==1.2.2`, `torch==2.0.1` | Use nearest installable versions compatible with Python 3.11 on Apple Silicon macOS | Older binary wheels for numpy 1.24.2 / pandas 2.0.0 are not natively precompiled for modern macOS arm64 Python 3.11 |
+| DV7 | Upstream pins: `numpy==1.24.2`, `pandas==2.0.0`, `scikit-learn==1.2.2`, `torch==2.0.1` | Pinned modern versions (`numpy==2.4.6`, `tensorflow==2.21.0`, etc.) | Compatibility with Python 3.11 and Apple Silicon macOS; torch moved to reference-only |
 | DV8 | AGENTS §2.3 global model defaults (out 64, hidden 1024-1024-1024) | Per-kind defaults: CLOSR uses out 64, 3 hidden layers; CLAD uses out 8, 4 hidden layers per `train_clad.py` | Mirrors upstream scripts exactly per model kind |
 | DV9 | AGENTS §5.2 / decisions.md D4.3 upstream default training seed check | Upstream scripts set no training seed (only split seed `39058032`); training seeds are `[1, 2, 3]` | Ensures deterministic, multi-seed training runs |
+| DV10 | Upstream implemented in PyTorch | All runtime code (`src/nids/`, `scripts/`) implemented in TensorFlow (`tf.keras`) | Binding framework policy requirement |
+| DV11 | PyTorch everywhere | PyTorch strictly isolated to `requirements-reference.txt` for `@pytest.mark.reference` tests | Guarantees torch-free runtime while enabling numerical validation |
+| DV12 | PyTorch baselines and Siamese | Baselines and Siamese re-implemented in TensorFlow or marked upstream-reported | Clean framework consistency; no PyTorch runtime coupling |
 

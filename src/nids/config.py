@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
-import torch
 import yaml
 
 
@@ -102,8 +101,9 @@ class Config:
     # Visualization
     tsne_max_points: int = 5000
 
-    # Device
+    # Device & Determinism
     device: str = "auto"
+    deterministic: bool = False
 
 
 def get_default_config(model_kind: str = "closr") -> Config:
@@ -131,13 +131,25 @@ def get_default_config(model_kind: str = "closr") -> Config:
 
 
 def resolve_device(device_str: str) -> str:
-    """Resolve device string to 'cuda', 'mps', or 'cpu'."""
+    """Resolve device string to 'gpu' or 'cpu' using TensorFlow."""
+    import tensorflow as tf
+
     dev = device_str.lower()
+    if dev == "cpu":
+        try:
+            tf.config.set_visible_devices([], "GPU")
+        except Exception:
+            pass
+        return "cpu"
+    if dev == "gpu":
+        gpus = tf.config.list_physical_devices("GPU")
+        if not gpus:
+            raise ValueError("Device 'gpu' requested, but no GPU found by TensorFlow.")
+        return "gpu"
     if dev == "auto":
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    if dev in {"cuda", "cpu", "mps"}:
-        return dev
-    raise ValueError(f"Invalid device '{device_str}'. Expected 'auto', 'cuda', 'cpu', or 'mps'.")
+        gpus = tf.config.list_physical_devices("GPU")
+        return "gpu" if gpus else "cpu"
+    raise ValueError(f"Invalid device '{device_str}'. Expected 'auto', 'gpu', or 'cpu'.")
 
 
 def validate_config(cfg: Config) -> None:
@@ -256,17 +268,32 @@ def save_config(cfg: Config, path: str | Path) -> None:
         yaml.safe_dump(asdict(cfg), f, sort_keys=False)
 
 
-def set_seed(seed: int) -> None:
-    """Seed Python random, NumPy, and PyTorch for deterministic execution."""
+def set_seed(seed: int, deterministic: bool = False) -> None:
+    """Seed Python random, NumPy, and TensorFlow for deterministic execution."""
+    import os
+
+    import tensorflow as tf
+
+    os.environ["PYTHONHASHSEED"] = str(seed)
     random.seed(seed)
     np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
+    tf.keras.utils.set_random_seed(seed)
+    if deterministic:
+        try:
+            tf.config.experimental.enable_op_determinism()
+        except Exception:
+            pass
 
 
 def get_run_metadata(cfg: Config) -> dict[str, Any]:
     """Return runtime metadata dictionary including git commit, versions, and device."""
+    import datetime
+
+    import keras
+    import pandas
+    import sklearn
+    import tensorflow as tf
+
     try:
         git_hash = (
             subprocess.check_output(
@@ -279,16 +306,15 @@ def get_run_metadata(cfg: Config) -> dict[str, Any]:
     except Exception:
         git_hash = "unknown"
 
-    import pandas
-    import sklearn
-
     return {
         "seed": cfg.seed,
         "git_commit": git_hash,
         "device": resolve_device(cfg.device),
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "versions": {
             "python": sys.version.split()[0],
-            "torch": torch.__version__,
+            "tensorflow": tf.__version__,
+            "keras": keras.__version__,
             "numpy": np.__version__,
             "pandas": pandas.__version__,
             "sklearn": sklearn.__version__,

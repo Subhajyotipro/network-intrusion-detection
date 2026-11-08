@@ -1,0 +1,8 @@
+# Upstream reference dependencies for tests marked @pytest.mark.reference
+# Do NOT install in the main runtime virtual environment.
+# Install in a separate virtual environment to run numerical comparisons with upstream PyTorch code.
+torch>=2.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+scikit-learn>=1.2.0
+

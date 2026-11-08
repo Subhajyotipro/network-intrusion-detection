@@ -46,6 +46,7 @@ This combination is suggested in the literature but has **not been empirically v
 - **Upstream:** https://github.com/jackwilkie/CLOSR (Apache-2.0; paper: "A Novel Contrastive Loss for Zero-Day Network Intrusion Detection", IEEE TNSM 2026, DOI 10.1109/TNSM.2026.3652529).
 - Clone it into `third_party/CLOSR/` and treat it as **read-only reference**. Our own code lives in our own package and is *adapted* from it, never edited in place there.
 - Preserve the Apache-2.0 license header/attribution on every adapted file and add a top-level `NOTICE` file crediting the upstream authors.
+- **Framework Note:** Upstream is implemented in PyTorch. Our runtime codebase (`src/nids/`, `scripts/`) strictly uses **TensorFlow** with the Keras that ships inside it (`tf.keras`). Numerical reference-equivalence tests use PyTorch strictly as an isolated test-time dependency (via `requirements-reference.txt`). In Section 2.1, Section 3, and all task descriptions, wording such as KEEP, ADAPT, or port means **re-implement in TensorFlow**, reproducing upstream's mathematics, architectures, and defaults.
 
 ### 2.1 What is verified to exist upstream (from the README and source files)
 
@@ -136,7 +137,7 @@ Create this layout (names may be adjusted only if recorded in `docs/DEVIATIONS.m
 
 - `AGENTS.md` — this file
 - `decisions.md` — implementation decisions and pre-registered deviations
-- `NOTICE`, `LICENSE` (Apache-2.0), `README.md`, `pyproject.toml`, `requirements.txt`
+- `NOTICE`, `LICENSE` (Apache-2.0), `README.md`, `pyproject.toml`, `requirements.txt`, `requirements-reference.txt`
 - `third_party/CLOSR/` — upstream clone, read-only
 - `src/nids/` — our package
   - `config/` — dataclass/YAML configs; one default config per experiment
@@ -163,12 +164,12 @@ Create this layout (names may be adjusted only if recorded in `docs/DEVIATIONS.m
 - Any change to the split must keep the upstream default seed reproducible, and every split must be saved to disk (indices or hash) so runs are comparable.
 
 **5.2 Reproducibility**
-- Seed Python, NumPy, and PyTorch everywhere; record seeds in every result file.
+- Seed Python, NumPy, and TensorFlow everywhere; record seeds in every result file.
 - Main comparisons use **at least 3 seeds**, reporting mean ± std. Single-seed numbers must be labelled as such. The seed protocol (fixed split seed, training seeds 1, 2, 3) is in `decisions.md` D4.3.
 - Record library versions, device, and git commit hash in every result file.
 
 **5.3 Environment**
-- Python 3 + PyTorch (+ scikit-learn, NumPy, pandas, matplotlib). Pin versions in `requirements.txt` starting from upstream's file.
+- Python 3 + TensorFlow/Keras (+ scikit-learn, NumPy, pandas, matplotlib); every script runs on CPU. Pin versions in `requirements.txt`.
 - Device auto-selection: use GPU if available, otherwise CPU. Every script must run on CPU (slowly) so tests work anywhere.
 - **If the Lycos2017 dataset cannot be downloaded in the agent's environment**, do NOT stop: build the synthetic data generator (72 features, 12 classes + 2 zero-day classes, matching the schema) and complete all code and tests on it; mark real-data tasks as "BLOCKED: dataset" in the report and tell the human exactly which file to place where.
 
@@ -192,7 +193,7 @@ For **every task**:
 3. **Write tests first or alongside**: unit tests for logic, a smoke test on synthetic data, and where relevant a regression test on real data.
 4. **Run the full relevant test suite**. On failure: diagnose the root cause (do not patch symptoms), fix, rerun.
 5. **Automatic test-and-repair loop**:
-   - After finishing each task, and again before writing each PR summary report, run: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real"`.
+   - After finishing each task, and again before writing each PR summary report, run: `python -m py_compile` on changed files, `ruff check`, then `pytest -x -q -m "not real and not reference"`.
    - On any failure: read the traceback, find the root cause, fix the code, then rerun the WHOLE suite (not only the failing test). Repeat until green.
    - Cap: 5 fix-iterations per distinct failing test (this keeps step 7's cap). If the same error appears twice with the same fix attempt, stop repeating it and re-diagnose with a different approach (check shapes, dtypes, devices, label alignment, score direction, data leakage).
    - After the cap: mark the test `xfail` with a reason, log it `OPEN` in `docs/BUGLOG.md` with your analysis, and continue with other tasks. Do not block the PR on it.
@@ -201,8 +202,8 @@ For **every task**:
    - If real data exists, also run `pytest -m real` once at the end of each PR.
 6. **Hunt bugs deliberately** (do this even when tests pass):
    - run with tiny inputs, batch size 1, empty class, single-class batch, NaN/Inf inputs, CPU-only, and mixed precision off/on (mixed precision is not implemented in our port, so only "off" applies — DV5 in `decisions.md`);
-   - check shapes, dtype, device placement, label-index alignment, and train/eval mode;
-   - compare against the upstream implementation numerically on a fixed small input (loss values, centroid values, scores must match within a small tolerance);
+   - check shapes, dtype, device placement, label-index alignment, that the training flag (`training=True/False`) is passed correctly, and gradients disabled during inference (no `tf.GradientTape` active in inference);
+   - compare against the upstream implementation numerically on a fixed small input via `@pytest.mark.reference` tests (loss values, centroid values, scores must match within a small tolerance);
    - check for data leakage between splits.
 7. **Log every bug** in `docs/BUGLOG.md`: ID, symptom, root cause, fix, test that now guards it, task ID, iterations (how many fix-iterations it took).
 8. **Iterate** until all tests pass and acceptance criteria hold. Cap at 5 fix-iterations per bug; if still failing, document it as "OPEN" in the report with the analysis, and continue with other tasks.
@@ -221,10 +222,10 @@ For **every task**:
 | PR1-T01 | Scaffolding & attribution | Create repo layout (Section 4), clone upstream into `third_party/`, pin `requirements.txt`, add `NOTICE`, license headers, `docs/UPSTREAM_INVENTORY.md` (Section 2.2). Copy the pre-registered deviations DV1–DV6 from `decisions.md` Appendix B into `docs/DEVIATIONS.md`. | Fresh clone + install works; inventory file lists every upstream file inspected; `docs/DEVIATIONS.md` contains DV1–DV6. |
 | PR1-T02 | Config system | One config object per experiment replacing the duplicated argparse blocks in upstream train/eval scripts; CLI overrides allowed. | Same hyperparameter defaults as Section 2.3; boolean flags (residual, squared) parse correctly from CLI (see Section 12, item 1). |
 | PR1-T03 | Data pipeline | Adapt `get_data` + `tabular_dl`; load Lycos2017; drop identifier columns; encode labels with benign = 0; hold out classes with < 100 samples as zero-day (evaluation arrays label them `UNKNOWN_ID = -1`, DV4); class-balanced training sampler; **add validation split** support (carved from the train remainder after the fixed test split, DV6); save split indices; build the synthetic data generator. Write `docs/DATA_CARD.md` (class counts per split, zero-day classes, feature count, preprocessing/scaling). | Class counts reported; zero-day classes absent from train/val; no index overlap between splits (tested); synthetic generator reproduces schema. |
-| PR1-T04 | Models & losses | Port CLAD model/loss and CLOSR model/loss. Make `d_in` configurable. | Unit tests: output shapes; embeddings unit-norm after normalisation; loss finite and non-negative; gradients flow to all parameters; loss decreases on a toy separable problem over a few steps; margin and `squared` flag change the loss as expected; asymmetric behaviour (benign vs malicious treated differently) is demonstrated by a test; numerical match with upstream loss on fixed inputs. |
-| PR1-T05 | Unified trainer | One trainer supporting CLAD and CLOSR: AdamW, warm-up + cosine schedule, balanced sampler, meters, periodic logging, checkpointing (weights + optimiser + schedule + config + class map + seed). Support resume and a `--smoke` mode (few batches). | Smoke training runs end-to-end on synthetic data on CPU; resume reproduces identical next-step loss; checkpoint reload restores identical outputs. |
+| PR1-T04 | Models & losses | Port CLAD model/loss and CLOSR model/loss in TensorFlow. Make `d_in` configurable. | Unit tests: output shapes; embeddings unit-norm after normalisation; loss finite and non-negative; gradients flow to all parameters; loss decreases on a toy separable problem over a few steps; margin and `squared` flag change the loss as expected; asymmetric behaviour (benign vs malicious treated differently) is demonstrated by a test; numerical match with upstream loss on fixed inputs via `@pytest.mark.reference` test. |
+| PR1-T05 | Unified trainer | One trainer supporting CLAD and CLOSR in TensorFlow: Keras AdamW, warm-up + cosine schedule, balanced sampler, meters, periodic logging, checkpointing (weights + optimiser + schedule + config + class map + seed). Support resume and a `--smoke` mode (few batches). | Smoke training runs end-to-end on synthetic data on CPU; resume reproduces identical next-step loss; checkpoint reload restores identical outputs. |
 | PR1-T06 | Evaluation harness | Port embedding extraction, centroid computation, similarity, open-set score, and every metric listed in Section 2.3 into a reusable `metrics` module. CLAD evaluation: per-attack-class AUROC table split into closed-set and open-set parts, with means. CLOSR evaluation: closed-set accuracy, open-set AUC, OpenAUC, FPR@95, F1, recall, benign FPR, mAP, PR-AUC. Output JSON + CSV. | Metrics match upstream eval scripts on identical inputs (tested); per-class tables generated; results file includes seed, commit hash, config. |
-| PR1-T07 | Baselines | Inventory `baseline_implementations/`. Port and run every baseline that exists as code. **Minimum:** MLP (closed-set supervised), Isolation Forest, Autoencoder, and the open-set baselines available upstream. All remaining baselines from the README tables are listed as "reported upstream numbers, not re-run", clearly labelled. | A comparison table CLAD/CLOSR vs. baselines produced with the same splits and metrics; each row marked "re-run" or "upstream-reported". |
+| PR1-T07 | Baselines | Inventory `baseline_implementations/`. Port and run every baseline that exists as code. **Minimum:** MLP (closed-set supervised) and Autoencoder in Keras; Isolation Forest (`sklearn`). PyTorch baselines are upstream-reported unless a faithful TensorFlow port is small. All remaining baselines from the README tables are listed as "reported upstream numbers, not re-run", clearly labelled. | A comparison table CLAD/CLOSR vs. baselines produced with the same splits and metrics; each row marked "re-run" or "upstream-reported". |
 | PR1-T08 | Reproduction check | Train CLAD and CLOSR with default config on real data (≥1 seed; 3 seeds preferred) and compare with Section 2.4. Use `val_ratio=0.0` here so the setup matches upstream. If only a CPU is available and epochs must be reduced, record `reduced_run=true` and mark the task PARTIAL (`decisions.md` D3.8). | Metrics within ±0.01 of targets, or a written explanation of every gap in the report. If dataset blocked, mark BLOCKED and show synthetic-data results instead. |
 | PR1-T09 | Visualisation | t-SNE of CLAD embeddings and CLOSR embeddings (benign vs. malicious vs. zero-day), saved to `results/figures/`. | Figures generated by a script, deterministic given seed. |
 | PR1-T10 | Test & bug-hunt pass | Run the Section 6 loop across the whole PR1 code; build `tests/unit`, `tests/integration`, and a numeric regression test against upstream. | All tests green; `docs/BUGLOG.md` populated; coverage of loss, data, metrics, checkpoint modules reported. |
@@ -239,7 +240,7 @@ For **every task**:
 | ID | Task | Details | Acceptance criteria |
 |---|---|---|---|
 | PR2-T01 | Validation & calibration protocol | Finalise train/val/test/zero-day protocol (Section 5.1). Implement **leave-one-attack-out pseudo-zero-day** validation: for calibration, temporarily treat one known attack class as unseen to simulate zero-day behaviour without touching real zero-day classes (method: drop that class's centroid/prototype at calibration time, `decisions.md` D5 and DV3). | Test proving real zero-day samples are never used in any calibration function; pseudo-zero-day option documented. |
-| PR2-T02 | Siamese classifier (Stage 2) | Reuse the upstream Siamese baseline if it exists; otherwise implement: shared encoder, pair or triplet sampling with class balancing (an in-batch pair mask with class-balanced batches satisfies this, DV2), a contrastive/pair loss, training loop, checkpointing. Inference by comparing a flow's embedding with a **support set** (class prototypes or exemplars from training data) and returning class + confidence. Trains on known classes only (benign + known attacks). | Smoke-trains on synthetic data; reaches closed-set accuracy near the upstream Siamese figure (~0.9977) on real data; support-set construction is deterministic and saved with the checkpoint. |
+| PR2-T02 | Siamese classifier (Stage 2) | Upstream Siamese is PyTorch; re-implement in TensorFlow based on the upstream Siamese design (or implement: shared Keras encoder, pair or triplet sampling with class balancing via an in-batch pair mask with class-balanced batches, DV2), a contrastive/pair loss, training loop, checkpointing. Inference by comparing a flow's embedding with a **support set** (class prototypes or exemplars from training data) and returning class + confidence. Trains on known classes only (benign + known attacks). | Smoke-trains on synthetic data; reaches closed-set accuracy near the upstream Siamese figure (~0.9977) on real data; support-set construction is deterministic and saved with the checkpoint. |
 | PR2-T03 | Closed-set comparison CLOSR vs Siamese | Same splits, ≥3 seeds. Report accuracy, macro-F1, per-class recall/precision/F1, malicious-only metrics, confusion matrices, mean ± std. Also include the MLP baseline. | Table + confusion matrices showing the size of CLOSR's closed-set gap (or lack of one) with statistical spread. A short written conclusion on whether the abstract's claim holds in our runs. |
 | PR2-T04 | Open-set comparison | Same protocol for zero-day detection: open-set AUC, OpenAUC, FPR@95, per-zero-day-class AUROC for CLOSR, CLAD, and Siamese (using a confidence-based score for Siamese). | Table showing CLOSR's open-set advantage; Siamese open-set numbers close to the upstream ~0.72 (document if not). |
 | PR2-T05 | Gatekeeper API | A Stage-1 component wrapping a trained CLOSR: returns the open-set score, a closed-set prediction, and an accept/reject decision for a given threshold; supports single-flow and batch input. Pluggable scoring functions: (a) upstream score (similarity² weighted by softmax), (b) max cosine similarity, (c) max softmax. | All three scorers evaluated and compared on validation + test; default = upstream score unless another is clearly better on validation (decision recorded). |
@@ -304,6 +305,7 @@ The report must be factual: no task may be marked DONE without evidence listed i
 - [ ] Test suite green; BUGLOG complete; leakage audit passed.
 - [ ] Automatic pytest repair loop ran after every task; no failing test left unlogged.
 - [ ] Attribution to upstream authors and Apache-2.0 compliance in place.
+- [ ] No torch import in src/ or scripts/ (guard test green); torch used only in reference tests.
 - [ ] `docs/DEVIATIONS.md` lists DV1–DV6 from `decisions.md` plus any further deviations.
 
 ---
@@ -317,7 +319,7 @@ The agent must verify each of these, and if confirmed, fix it in our code and lo
 3. **Learning-rate constants:** the training script hard-codes the optimiser's initial LR (1e-6) and the schedule's start/end values while exposing only the peak LR — expose them in the config and document.
 4. **No validation split** (`val_ratio=0.0`) upstream — thresholds and early decisions need one; do not tune on test.
 5. **Label-layout assumptions in `eval_closr`:** the number of known classes is inferred from the unique labels in the test set, and zero-day labels are assumed to come after all known labels. If a known class is missing from the test split, metrics silently break — add explicit class-map handling and assertions.
-6. **Eval/train mode and device handling:** confirm the model is in eval mode with gradients disabled during inference, and that CPU-only runs work (upstream defaults to CUDA).
+6. **Eval/train mode and device handling:** confirm training=False is passed during inference, no `tf.GradientTape` is active during inference, and that CPU-only runs work cleanly across all scripts (upstream defaults to CUDA).
 7. **Open-set score direction:** upstream treats a *lower* score as more likely zero-day (negated before ROC computation). Keep the direction consistent across all scorers in our gatekeeper and test monotonicity.
 8. **Class-balanced sampler + `drop_last`:** confirm that rare known classes are actually sampled and that tiny splits (tests) do not crash when a class is smaller than the batch.
 9. **Benign = class 0 assumption** is used in several metrics (benign FPR, malicious-only recall). Centralise this assumption and test it.

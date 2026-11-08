@@ -1,15 +1,10 @@
-# Pinned dependencies for CLOSR -> Siamese Cascade NIDS
-# Derived from third_party/CLOSR/requirements.txt with Python 3.11 compatibility updates
-numpy==1.26.4
-pandas==2.3.2
-scikit-learn==1.7.1
-torch==2.10.0
-matplotlib==3.10.5
+numpy==2.4.6
+pandas==3.1.1
+scikit-learn==1.9.1
+tensorflow==2.21.0
+matplotlib==3.11.2
 pyyaml==6.0.3
-
-# Development, testing, and linting
 pytest==9.2.0
 pytest-cov==7.1.0
 pytest-timeout==2.4.0
 ruff==0.17.4
-

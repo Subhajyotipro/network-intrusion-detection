@@ -15,7 +15,9 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
+import os
 import random
 import subprocess
 import sys
@@ -36,7 +38,6 @@ class Config:
     results_dir: str = "results"
     weights_dir: str = "weights"
     upstream_dir: str = "third_party/CLOSR"
-
     # Data
     split_seed: int = 39058032
     test_ratio: float = 0.5
@@ -54,7 +55,6 @@ class Config:
         ]
     )
     class_zero: str = "benign"
-
     # Model & Loss
     model_kind: str = "closr"
     d_in: Optional[int] = None
@@ -63,9 +63,9 @@ class Config:
     hidden: list[int] = field(default_factory=lambda: [1024, 1024, 1024])
     dropout: float = 0.1
     residual: bool = False
+    init: str = "torch_default"
     margin: float = 1.0
     squared: bool = True
-
     # Optimizer & Scheduler
     batch_size: int = 4096
     weight_decay: float = 0.0403709
@@ -78,7 +78,6 @@ class Config:
     seeds: list[int] = field(default_factory=lambda: [1, 2, 3])
     smoke: bool = False
     max_batches: Optional[int] = None
-
     # Inference & Calibration
     scorer: str = "upstream"
     grid_size: int = 200
@@ -88,19 +87,14 @@ class Config:
     max_benign_fp: float = 0.01
     siamese_conf_grid: int = 10
     skip_if_confident_benign: bool = False
-
     # Siamese Stage-2
     support_mode: str = "prototype"
     k_exemplars: int = 5
-
-    # Benchmarking
+    # Benchmarking & Visualization
     warmup_runs: int = 20
     timed_runs: int = 200
     bench_batch_sizes: list[int] = field(default_factory=lambda: [1, 32, 1024])
-
-    # Visualization
     tsne_max_points: int = 5000
-
     # Device & Determinism
     device: str = "auto"
     deterministic: bool = False
@@ -110,14 +104,7 @@ def get_default_config(model_kind: str = "closr") -> Config:
     """Return default Config dataclass initialized with per-kind defaults."""
     kind = model_kind.lower()
     if kind == "closr":
-        return Config(
-            model_kind="closr",
-            d_out=64,
-            hidden=[1024, 1024, 1024],
-            dropout=0.1,
-            weight_decay=0.0403709,
-            lr_peak=1e-5,
-        )
+        return Config()
     if kind == "clad":
         return Config(
             model_kind="clad",
@@ -142,13 +129,11 @@ def resolve_device(device_str: str) -> str:
             pass
         return "cpu"
     if dev == "gpu":
-        gpus = tf.config.list_physical_devices("GPU")
-        if not gpus:
+        if not tf.config.list_physical_devices("GPU"):
             raise ValueError("Device 'gpu' requested, but no GPU found by TensorFlow.")
         return "gpu"
     if dev == "auto":
-        gpus = tf.config.list_physical_devices("GPU")
-        return "gpu" if gpus else "cpu"
+        return "gpu" if tf.config.list_physical_devices("GPU") else "cpu"
     raise ValueError(f"Invalid device '{device_str}'. Expected 'auto', 'gpu', or 'cpu'.")
 
 
@@ -160,16 +145,19 @@ def validate_config(cfg: Config) -> None:
         raise ValueError(f"test_ratio must be in [0.0, 1.0), got {cfg.test_ratio}")
     if not (0.0 <= cfg.val_ratio < 1.0):
         raise ValueError(f"val_ratio must be in [0.0, 1.0), got {cfg.val_ratio}")
+    if cfg.init not in ("torch_default", "keras_default"):
+        raise ValueError(f"init must be 'torch_default' or 'keras_default', got '{cfg.init}'")
     if len(cfg.hidden) == 0:
         raise ValueError("hidden layers list cannot be empty")
     if any(h <= 0 for h in cfg.hidden):
         raise ValueError(f"hidden layer dimensions must be positive, got {cfg.hidden}")
-    if cfg.batch_size <= 0:
-        raise ValueError(f"batch_size must be positive, got {cfg.batch_size}")
-    if cfg.d_out <= 0:
-        raise ValueError(f"d_out must be positive, got {cfg.d_out}")
-    if cfg.n_classes <= 0:
-        raise ValueError(f"n_classes must be positive, got {cfg.n_classes}")
+    for name, val in (
+        ("batch_size", cfg.batch_size),
+        ("d_out", cfg.d_out),
+        ("n_classes", cfg.n_classes),
+    ):
+        if val <= 0:
+            raise ValueError(f"{name} must be positive, got {val}")
 
 
 def _coerce_type(expected_type: Any, val: Any, key: str) -> Any:
@@ -177,22 +165,19 @@ def _coerce_type(expected_type: Any, val: Any, key: str) -> Any:
     if expected_type is bool or expected_type == "bool":
         if isinstance(val, bool):
             return val
-        if isinstance(val, str):
-            if val.lower() in ("true", "1", "yes"):
-                return True
-            if val.lower() in ("false", "0", "no"):
-                return False
+        if isinstance(val, str) and val.lower() in ("true", "1", "yes"):
+            return True
+        if isinstance(val, str) and val.lower() in ("false", "0", "no"):
+            return False
         raise ValueError(f"Expected bool for '{key}', got {type(val).__name__} ({val})")
-    if expected_type is float or expected_type == "float":
+    if expected_type in (float, "float"):
         if isinstance(val, (int, float)) and not isinstance(val, bool):
             return float(val)
-        if isinstance(val, str):
-            try:
-                return float(val)
-            except ValueError:
-                pass
-        raise ValueError(f"Expected float for '{key}', got {type(val).__name__} ({val})")
-    if expected_type is int or expected_type == "int":
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            raise ValueError(f"Expected float for '{key}', got {type(val).__name__} ({val})")
+    if expected_type in (int, "int"):
         if isinstance(val, int) and not isinstance(val, bool):
             return val
         if isinstance(val, str):
@@ -201,9 +186,7 @@ def _coerce_type(expected_type: Any, val: Any, key: str) -> Any:
             except ValueError:
                 pass
         raise ValueError(f"Expected int for '{key}', got {type(val).__name__} ({val})")
-    if expected_type is str or expected_type == "str":
-        return str(val)
-    return val
+    return str(val) if expected_type in (str, "str") else val
 
 
 def apply_overrides(cfg_dict: dict[str, Any], overrides: list[str]) -> dict[str, Any]:
@@ -219,8 +202,7 @@ def apply_overrides(cfg_dict: dict[str, Any], overrides: list[str]) -> dict[str,
         if key not in valid_fields:
             raise KeyError(f"Unknown config key: '{key}'.")
         parsed_val = yaml.safe_load(val_str)
-        coerced = _coerce_type(valid_fields[key], parsed_val, key)
-        cfg_dict[key] = coerced
+        cfg_dict[key] = _coerce_type(valid_fields[key], parsed_val, key)
     return cfg_dict
 
 
@@ -236,16 +218,13 @@ def load_config(
         if not p.is_file():
             raise FileNotFoundError(f"Config file not found: {p}")
         with open(p, "r", encoding="utf-8") as f:
-            loaded = yaml.safe_load(f)
-            if loaded is not None:
-                if not isinstance(loaded, dict):
-                    raise ValueError(f"YAML content in {p} must be a mapping.")
-                raw_dict = loaded
+            loaded = yaml.safe_load(f) or {}
+            if not isinstance(loaded, dict):
+                raise ValueError(f"YAML content in {p} must be a mapping.")
+            raw_dict = loaded
 
     kind = model_kind or raw_dict.get("model_kind", "closr")
-    base_cfg = get_default_config(kind)
-    merged = asdict(base_cfg)
-
+    merged = asdict(get_default_config(kind))
     valid_names = {f.name for f in fields(Config)}
     for k, v in raw_dict.items():
         if k not in valid_names:
@@ -270,8 +249,6 @@ def save_config(cfg: Config, path: str | Path) -> None:
 
 def set_seed(seed: int, deterministic: bool = False) -> None:
     """Seed Python random, NumPy, and TensorFlow for deterministic execution."""
-    import os
-
     import tensorflow as tf
 
     os.environ["PYTHONHASHSEED"] = str(seed)
@@ -287,8 +264,6 @@ def set_seed(seed: int, deterministic: bool = False) -> None:
 
 def get_run_metadata(cfg: Config) -> dict[str, Any]:
     """Return runtime metadata dictionary including git commit, versions, and device."""
-    import datetime
-
     import keras
     import pandas
     import sklearn
@@ -296,10 +271,7 @@ def get_run_metadata(cfg: Config) -> dict[str, Any]:
 
     try:
         git_hash = (
-            subprocess.check_output(
-                ["git", "rev-parse", "HEAD"],
-                stderr=subprocess.DEVNULL,
-            )
+            subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL)
             .decode("utf-8")
             .strip()
         )
@@ -324,8 +296,5 @@ def get_run_metadata(cfg: Config) -> dict[str, Any]:
 
 def setup_logging(level: int = logging.INFO) -> None:
     """Configure standard logging format across all package and script execution."""
-    logging.basicConfig(
-        level=level,
-        format="[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    fmt = "[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"
+    logging.basicConfig(level=level, format=fmt, datefmt="%Y-%m-%d %H:%M:%S")

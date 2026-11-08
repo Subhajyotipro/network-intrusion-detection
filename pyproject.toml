@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nids"
+version = "0.1.0"
+description = "CLOSR -> Siamese cascade network intrusion detection system"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Subhajyoti Halder" },
+]
+dependencies = [
+    "numpy>=1.24.2",
+    "pandas>=2.0.0",
+    "scikit-learn>=1.2.2",
+    "torch>=2.0.1",
+    "matplotlib>=3.7.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-timeout>=2.1.0",
+    "ruff>=0.1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 120
+markers = [
+    "real: tests requiring the real Lycos2017 dataset (deselect with '-m \"not real\"')",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = ["third_party"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]

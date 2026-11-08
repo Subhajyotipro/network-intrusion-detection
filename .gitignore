@@ -45,6 +45,7 @@ wheels/
 *.pth
 *.pt.tar
 data/*.csv
+weights/*.tar
 results/weights/
 
 # OS specific

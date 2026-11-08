@@ -206,10 +206,16 @@ python scripts/run_demo.py --samples 20
 
 This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details.
 
-### Upstream Reference
+### Upstream Reference & Attribution
 This project builds upon and extends foundational contrastive learning methodologies introduced by:
 - **Paper:** Jack Wilkie et al., *"A Novel Contrastive Loss for Zero-Day Network Intrusion Detection"*, IEEE Transactions on Network and Service Management (TNSM), 2026. DOI: [10.1109/TNSM.2026.3652529](https://doi.org/10.1109/TNSM.2026.3652529).
 - **Reference Codebase:** [jackwilkie/CLOSR](https://github.com/jackwilkie/CLOSR) (Apache-2.0 License).
+
+### Attribution Convention
+Every source file in this repository begins with a standard Apache-2.0 license header. In accordance with Apache-2.0, any file adapted from the upstream repository preserves original copyright notices and explicitly includes the attribution line:
+```python
+# Adapted from jackwilkie/CLOSR: <upstream path>
+```
 
 See the [NOTICE](NOTICE) file for full attribution and copyright notices.
 

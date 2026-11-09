@@ -53,6 +53,7 @@ seeds:
 smoke: false
 max_batches: null
 log_every: 10
+checkpoint_every: 0
 
 # Inference & Calibration
 scorer: "upstream"

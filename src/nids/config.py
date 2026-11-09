@@ -97,6 +97,7 @@ class Config:
     smoke: bool = False
     max_batches: Optional[int] = None
     log_every: int = 10
+    checkpoint_every: int = 0
 
     # Inference & Calibration
     scorer: str = "upstream"

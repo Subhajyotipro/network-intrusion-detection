@@ -121,3 +121,49 @@ def test_training_resume_reproduces_identical_loss(tmp_path: Path):
 
     # Assert that epoch 3 loss from continuous matches epoch 3 loss from resume within 1e-6
     np.testing.assert_allclose(loss_resumed_ep3, loss_cont_ep3, rtol=1e-6, atol=1e-6)
+
+
+def test_periodic_checkpoint_cadence_and_resume(tmp_path: Path):
+    """Verify periodic checkpoints save at configured cadence and enable seamless resume."""
+    weights_dir = tmp_path / "periodic_weights"
+    weights_dir.mkdir(parents=True, exist_ok=True)
+
+    cfg = Config(
+        model_kind="closr",
+        d_in=8,
+        hidden=[16, 16],
+        d_out=8,
+        n_classes=3,
+        dropout=0.0,
+        batch_size=8,
+        epochs=4,
+        smoke=False,
+        max_batches=2,
+        seed=42,
+        weights_dir=str(weights_dir),
+        checkpoint_every=2,
+    )
+    data = generate_synthetic_data(cfg, num_samples=32)
+
+    # 1. Uninterrupted 4-epoch run
+    res_full = train(cfg, kind="closr", data=data)
+    loss_full_ep4 = res_full["epoch_losses"][3]
+
+    # Verify checkpoint at epoch 2 was saved automatically by checkpoint_every=2
+    ckpt_base = weights_dir / f"{cfg.model_kind}_seed{cfg.seed}"
+    assert (ckpt_base.with_suffix(".weights.h5")).exists()
+    assert (weights_dir / f"{cfg.model_kind}_seed{cfg.seed}_meta.json").exists()
+
+    # 2. Run 2 epochs with checkpoint_every=2
+    weights_dir_mid = tmp_path / "mid_weights"
+    cfg_mid = Config(**{**cfg.__dict__, "weights_dir": str(weights_dir_mid)})
+    _ = train(cfg_mid, kind="closr", data=data, max_epochs=2)
+
+    ckpt_mid = weights_dir_mid / f"{cfg.model_kind}_seed{cfg.seed}"
+    assert (ckpt_mid.with_suffix(".weights.h5")).exists()
+
+    # 3. Resume from mid-run checkpoint to epoch 4
+    res_resumed = train(cfg_mid, kind="closr", data=data, resume_checkpoint=str(ckpt_mid))
+    loss_resumed_ep4 = res_resumed["epoch_losses"][-1]
+
+    np.testing.assert_allclose(loss_resumed_ep4, loss_full_ep4, rtol=1e-6, atol=1e-6)

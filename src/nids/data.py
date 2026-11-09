@@ -121,9 +121,8 @@ def _split_train_val_test(
     )
     if val_ratio <= 0.0:
         return tr_val, None, te
-    eff_val = val_ratio / (1.0 - test_ratio)
     tr, val = train_test_split(
-        tr_val, test_size=eff_val, random_state=seed + 1, shuffle=True, stratify=y[tr_val]
+        tr_val, test_size=val_ratio, random_state=seed + 1, shuffle=True, stratify=y[tr_val]
     )
     return tr, val, te
 

@@ -282,3 +282,50 @@ def test_self_pair_float32_roundoff_exceeds_eps_matches_reference():
 
     np.testing.assert_allclose(tf_loss, np_loss, rtol=1e-5, atol=1e-6)
     np.testing.assert_allclose(tf_frac, np_frac, rtol=1e-5, atol=1e-6)
+
+
+def test_duplicate_rows_parity_with_numpy_reference():
+    """Verify duplicate row edge cases (a, b, c) match independent NumPy float64 reference."""
+    rng = np.random.default_rng(42)
+
+    # (a) Duplicated rows within the same class
+    x_a = rng.standard_normal((20, 12, 64), dtype=np.float32)
+    y_a = rng.integers(0, 12, size=20, dtype=np.int64)
+    x_a[1] = x_a[0]
+    y_a[1] = y_a[0]
+
+    # (b) Duplicated rows across different classes
+    x_b = rng.standard_normal((20, 12, 64), dtype=np.float32)
+    y_b = rng.integers(0, 12, size=20, dtype=np.int64)
+    x_b[1] = x_b[0]
+    y_b[1] = (y_b[0] + 1) % 12
+
+    # (c) A batch where every row of a class is identical
+    x_c = rng.standard_normal((20, 12, 64), dtype=np.float32)
+    y_c = np.array([0] * 10 + [1] * 10, dtype=np.int64)
+    for i in range(1, 10):
+        x_c[i] = x_c[0]
+
+    cases = [
+        ("same_class_dupes", x_a, y_a),
+        ("cross_class_dupes", x_b, y_b),
+        ("identical_class_rows", x_c, y_c),
+    ]
+
+    for _, x, y in cases:
+        # CLOSR loss & fraction pos
+        l_tf = float(closr_loss(tf.constant(x), tf.constant(y)))
+        l_np = float(np_closr_loss(x, y))
+        f_tf = float(closr_fraction_pos(tf.constant(x), tf.constant(y)))
+        f_np = float(np_closr_fraction_pos(x, y))
+        np.testing.assert_allclose(l_tf, l_np, rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(f_tf, f_np, rtol=1e-5, atol=1e-6)
+
+        # CLAD loss & fraction pos (use class-0 slice)
+        x_clad = x[:, 0, :]
+        l_tf_c = float(clad_loss(tf.constant(x_clad), tf.constant(y)))
+        l_np_c = float(np_clad_loss(x_clad, y))
+        f_tf_c = float(clad_fraction_pos(tf.constant(x_clad), tf.constant(y)))
+        f_np_c = float(np_clad_fraction_pos(x_clad, y))
+        np.testing.assert_allclose(l_tf_c, l_np_c, rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(f_tf_c, f_np_c, rtol=1e-5, atol=1e-6)

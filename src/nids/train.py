@@ -17,12 +17,13 @@ from __future__ import annotations
 
 import logging
 import math
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import numpy as np
 import tensorflow as tf
 
-from nids.checkpoint import load_checkpoint
+from nids.checkpoint import load_checkpoint, save_checkpoint
 from nids.config import Config
 from nids.data import DatasetSplits, class_balanced_sampler
 from nids.losses import clad_loss_and_frac, closr_loss_and_frac
@@ -223,6 +224,9 @@ def _train_epochs(
             cfg.log_every,
         )
         epoch_losses.append(ep_loss)
+        if cfg.checkpoint_every > 0 and epoch % cfg.checkpoint_every == 0:
+            ckpt_base = Path(cfg.weights_dir) / f"{cfg.model_kind}_seed{cfg.seed}"
+            save_checkpoint(ckpt_base, net, optimizer, step, cfg, data.class_map, cfg.seed, epoch)
     return step, last_ep, epoch_losses, f_pos
 
 

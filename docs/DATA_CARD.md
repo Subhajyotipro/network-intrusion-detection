@@ -105,8 +105,8 @@ Classes with fewer than `sample_thres = 100` instances are held out entirely as 
 
 | Split | Fraction of Known | Known Samples | Zero-Day Samples | Purpose |
 |---|---|---|---|---|
-| **Train** | 40% | 715,972 | 0 | Model training & representation learning |
-| **Validation** | 10% | 178,993 | 0 | Open-set threshold & cascade calibration (PR2) |
+| **Train** | 45% (90% of remainder) | 805,468 | 0 | Model training & representation learning |
+| **Validation** | 5% (10% of remainder) | 89,497 | 0 | Open-set threshold & cascade calibration (PR2) |
 | **Test** | 50% | 894,966 | 0 | Closed-set & known-class evaluation |
 | **Zero-Day** | Held out | 0 | 23 | Unseen zero-day detection evaluation |
 | **Total** | 100% | **1,789,931** | **23** | |

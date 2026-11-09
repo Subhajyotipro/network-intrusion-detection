@@ -65,4 +65,3 @@ def test_baseline_cli_smoke_all_models(tmp_path: Path):
     assert code == 0
     assert (res_dir / "baselines" / "comparison_synthetic.csv").is_file()
     assert (res_dir / "baselines" / "comparison_synthetic.md").is_file()
-

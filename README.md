@@ -221,10 +221,11 @@ python scripts/run.py baseline --model iforest --config configs/default.yaml --s
 python scripts/run.py compare --config configs/default.yaml --set data_source=real
 ```
 
-*Runtime Caveats on Apple Silicon (8 GB RAM):*
-- **Isolation Forest:** Trains on ~894k benign samples (`n_estimators=100`, `max_samples="auto"`), scoring in chunks of 4096. Memory bounded (<1 GB RAM); runtime ~1–2 minutes on CPU.
-- **Autoencoder:** Trains symmetric encoder-decoder on benign samples using AdamW and MSE loss. Memory ~300 MB; runtime ~2–3 minutes for 20 epochs.
-- **MLP Softmax:** Supervised classifier trained with AdamW and sparse cross-entropy on known classes. Memory ~500 MB; runtime ~3–5 minutes.
+*Measured Benchmarks on Apple Silicon (M1, 8 GB RAM, val_ratio=0.0):*
+- **Split Sizes (Real Data):** All train: 894,965 samples (MLP: 219 steps/epoch at batch 4096); Benign-only train: 670,584 samples (AE: 164 steps/epoch); Table 1 evaluation: 894,989 samples (894,966 test + 23 zero-day). Peak resident set size: 1.53 GB (1,645,871,104 bytes via `/usr/bin/time -l`).
+- **Isolation Forest (`n_estimators=100`):** Fit on 670k benign samples takes 1.79s [MEASURED]. Scoring 1 chunk (4096 samples) takes 13.17ms [MEASURED]; full evaluation pass (219 chunks) takes ~2.88s [EXTRAPOLATED]. Total runtime ~4.7s.
+- **Autoencoder (`[64, 32] -> 16`):** Single step time 3.58ms [MEASURED] (3 warm steps: 3.19ms, 3.64ms, 3.92ms). Time per epoch (164 steps) ~0.59s [EXTRAPOLATED]. 10 epochs takes ~5.9s [EXTRAPOLATED].
+- **MLP Classifier (`1024-1024-1024`):** Single step time 154.18ms [MEASURED] (3 warm steps: 159.74ms, 151.41ms, 151.38ms). Time per epoch (219 steps) ~33.76s [EXTRAPOLATED]. 10 epochs (`baseline_epochs=10`) takes ~338s (~5.6 min) [EXTRAPOLATED]. Recommended baseline training budget: `baseline_epochs=10`.
 
 ### 7. Interactive Inspection Demo
 

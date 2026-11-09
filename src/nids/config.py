@@ -92,6 +92,8 @@ class Config:
     lr_final: float = 1e-6
     warmup_frac: float = 0.1
     epochs: int = 200
+    baseline_lr: float = 1e-3
+    baseline_epochs: int = 10
     seed: int = 1
     seeds: list[int] = field(default_factory=lambda: [1, 2, 3])
     smoke: bool = False
@@ -151,6 +153,10 @@ def validate_config(cfg: Config) -> None:
         )
     if cfg.epochs <= 0:
         raise ValueError(f"epochs must be positive, got {cfg.epochs}")
+    if cfg.baseline_epochs <= 0:
+        raise ValueError(f"baseline_epochs must be positive, got {cfg.baseline_epochs}")
+    if cfg.baseline_lr <= 0.0:
+        raise ValueError(f"baseline_lr must be positive, got {cfg.baseline_lr}")
     if not (0.0 <= cfg.test_ratio < 1.0):
         raise ValueError(f"test_ratio must be in [0.0, 1.0), got {cfg.test_ratio}")
     if not (0.0 <= cfg.val_ratio < 1.0):

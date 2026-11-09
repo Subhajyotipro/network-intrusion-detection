@@ -26,13 +26,13 @@ from sklearn.ensemble import IsolationForest
 
 from nids.config import Config, get_run_metadata
 from nids.data import BENIGN_ID, DatasetSplits
-from nids.metrics import closed_set_accuracy, open_auc, open_set_auroc
+from nids.metrics import closed_set_accuracy, mean_auroc, open_auc, open_set_auroc
 
 logger = logging.getLogger("nids.baselines")
 
 
 class MLPBaseline:
-    """Supervised MLP classifier; open-set score: max softmax probability (higher = known)."""
+    """Supervised MLP classifier; Table 1 anomaly score: 1 - P(benign) (higher = anomalous)."""
 
     def __init__(self, d_in: int, n_classes: int, hidden: list[int], dropout: float = 0.1) -> None:
         inputs = tf.keras.Input(shape=(d_in,))
@@ -57,16 +57,21 @@ class MLPBaseline:
         """Compute softmax class probabilities."""
         return self.model.predict(x, batch_size=batch_size, verbose=0)
 
+    def score_anomaly(self, x: np.ndarray, batch_size: int = 4096) -> np.ndarray:
+        """Table 1 anomaly score: 1 - P(benign) (higher = more anomalous)."""
+        probs = self.predict_proba(x, batch_size=batch_size)
+        return 1.0 - probs[:, BENIGN_ID]
+
     def score_known(self, x: np.ndarray, batch_size: int = 4096) -> np.ndarray:
-        """Compute open-set score as max softmax probability (higher = more likely known)."""
+        """Table 2 supplementary score: max softmax probability (higher = known)."""
         probs = self.predict_proba(x, batch_size=batch_size)
         return np.max(probs, axis=-1)
 
 
 class AutoencoderBaseline:
-    """Symmetric Autoencoder; open-set score: negative reconstruction error (higher = known)."""
+    """Symmetric Autoencoder; Table 1 anomaly score: reconstruction MSE (higher = anomalous)."""
 
-    def __init__(self, d_in: int, hidden: list[int], latent_dim: int = 32) -> None:
+    def __init__(self, d_in: int, hidden: list[int], latent_dim: int = 16) -> None:
         inputs = tf.keras.Input(shape=(d_in,))
         x = inputs
         for h in hidden:
@@ -85,15 +90,18 @@ class AutoencoderBaseline:
         self.model.compile(optimizer=opt, loss="mse")
         self.model.fit(x, x, epochs=epochs, batch_size=batch_size, verbose=0)
 
-    def score_known(self, x: np.ndarray, batch_size: int = 4096) -> np.ndarray:
-        """Compute open-set score as negative MSE reconstruction error (higher = known)."""
+    def score_anomaly(self, x: np.ndarray, batch_size: int = 4096) -> np.ndarray:
+        """Table 1 anomaly score: MSE reconstruction error (higher = more anomalous)."""
         recon = self.model.predict(x, batch_size=batch_size, verbose=0)
-        mse = np.mean((x - recon) ** 2, axis=-1)
-        return -1.0 * mse
+        return np.mean((x - recon) ** 2, axis=-1)
+
+    def score_known(self, x: np.ndarray, batch_size: int = 4096) -> np.ndarray:
+        """Negative reconstruction error for inlier scoring (higher = known)."""
+        return -1.0 * self.score_anomaly(x, batch_size=batch_size)
 
 
 class IsolationForestBaseline:
-    """Isolation Forest; open-set score: sklearn score_samples (higher = known inlier)."""
+    """Isolation Forest; Table 1 anomaly score: -score_samples (higher = anomalous)."""
 
     def __init__(
         self,
@@ -114,8 +122,12 @@ class IsolationForestBaseline:
         """Fit Isolation Forest on normal/benign training features."""
         self.model.fit(x)
 
+    def score_anomaly(self, x: np.ndarray, chunk_size: int = 4096) -> np.ndarray:
+        """Table 1 anomaly score: -score_samples (higher = more anomalous)."""
+        return -1.0 * self.score_known(x, chunk_size=chunk_size)
+
     def score_known(self, x: np.ndarray, chunk_size: int = 4096) -> np.ndarray:
-        """Compute chunked score_samples (higher = more normal / likely known)."""
+        """Chunked score_samples (higher = normal inlier)."""
         scores = []
         for i in range(0, len(x), chunk_size):
             chunk = x[i : i + chunk_size]
@@ -123,70 +135,130 @@ class IsolationForestBaseline:
         return np.concatenate(scores, axis=0) if scores else np.empty(0, dtype=np.float64)
 
 
-def _eval_baseline_metrics(
-    model_name: str,
-    scores_test: np.ndarray,
-    scores_zd: Optional[np.ndarray],
-    y_test: np.ndarray,
-    preds_test: Optional[np.ndarray] = None,
-) -> dict[str, Any]:
-    """Compute standard metrics parity dictionary for re-run baseline."""
-    has_classifier = preds_test is not None
-    closed_acc = closed_set_accuracy(y_test, preds_test) if has_classifier else "n/a"
+def _prepare_table1_eval_arrays(splits: DatasetSplits) -> tuple[np.ndarray, np.ndarray]:
+    """Concatenate test and zero-day samples mirroring upstream eval_clad.py:148-200."""
+    x_parts = [splits.x_test]
+    y_parts = [splits.y_test]
+    if splits.x_zd is not None and splits.zd_names is not None:
+        x_parts.append(splits.x_zd)
+        zd_id_map = {
+            name: splits.class_map.n_known + i
+            for i, name in enumerate(splits.class_map.zero_day_names)
+        }
+        zd_labels = np.array([zd_id_map[name] for name in splits.zd_names], dtype=np.int64)
+        y_parts.append(zd_labels)
+    return np.concatenate(x_parts, axis=0), np.concatenate(y_parts, axis=0)
 
-    if scores_zd is not None and len(scores_zd) > 0:
-        all_scores = np.concatenate([scores_test, scores_zd], axis=0)
-        is_zd = np.concatenate(
-            [np.zeros(len(scores_test), dtype=bool), np.ones(len(scores_zd), dtype=bool)]
+
+def _compute_table1_branch(
+    scores: np.ndarray,
+    y_eval: np.ndarray,
+    splits: DatasetSplits,
+    include_lower_thres: bool,
+) -> dict[str, Any]:
+    """Compute per-class and closed/open mean AUROCs for one include_lower_thres branch."""
+    raw_res = mean_auroc(
+        scores, y_eval, return_class_level=True, include_lower_thres=include_lower_thres
+    )
+    roc_list = list(raw_res) if isinstance(raw_res, list) else [float(raw_res)]
+    n_known_attacks = splits.class_map.n_known - 1
+    n_zd = len(splits.class_map.zero_day_names)
+
+    closed_scores = roc_list[:n_known_attacks]
+    open_scores = roc_list[n_known_attacks : n_known_attacks + n_zd]
+    per_class: dict[str, float] = {}
+    for i in range(1, splits.class_map.n_known):
+        cname = splits.class_map.names[i]
+        per_class[cname] = (
+            float(closed_scores[i - 1]) if i - 1 < len(closed_scores) else float("nan")
         )
-        os_auc = open_set_auroc(is_zd.astype(int), all_scores, is_zd)
+    for j, zname in enumerate(splits.class_map.zero_day_names):
+        per_class[zname] = float(open_scores[j]) if j < len(open_scores) else float("nan")
+
+    return {
+        "closed_set_mean": float(np.mean(closed_scores)) if closed_scores else float("nan"),
+        "open_set_mean": float(np.mean(open_scores)) if open_scores else float("nan"),
+        "per_class": per_class,
+    }
+
+
+def _compute_supplementary_metrics(
+    model_name: str,
+    model: Any,
+    splits: DatasetSplits,
+) -> dict[str, Any]:
+    """Compute Table 2 supplementary metrics for MLP only (B2)."""
+    if model_name != "mlp":
+        return {"closed_set_acc": "n/a", "open_set_auc": "n/a", "open_auc": "n/a"}
+    probs = model.predict_proba(splits.x_test)
+    preds = np.argmax(probs, axis=-1)
+    acc = closed_set_accuracy(splits.y_test, preds)
+    if splits.x_zd is not None and len(splits.x_zd) > 0:
+        s_test = model.score_known(splits.x_test)
+        s_zd = model.score_known(splits.x_zd)
+        all_s = np.concatenate([s_test, s_zd], axis=0)
+        is_zd = np.concatenate([np.zeros(len(s_test), dtype=bool), np.ones(len(s_zd), dtype=bool)])
+        os_auc = float(open_set_auroc(is_zd.astype(int), all_s, is_zd))
     else:
         os_auc = float("nan")
-
-    o_auc = (
-        open_auc(float(closed_acc), float(os_auc))
-        if has_classifier and not np.isnan(float(os_auc))
-        else "n/a"
-    )
+    o_auc = open_auc(float(acc), float(os_auc)) if not np.isnan(os_auc) else "n/a"
     return {
-        "closed_set_acc": closed_acc,
-        "open_set_auc": float(os_auc) if not np.isnan(os_auc) else "n/a",
+        "closed_set_acc": acc,
+        "open_set_auc": os_auc if not np.isnan(os_auc) else "n/a",
         "open_auc": o_auc,
     }
 
 
-def _fit_and_score_model(
-    model_name: str, cfg: Config, splits: DatasetSplits
-) -> tuple[Any, np.ndarray, Optional[np.ndarray], Optional[np.ndarray]]:
-    """Fit selected baseline model and return scores on test and zero-day splits."""
+def _eval_baseline_model(
+    model_name: str,
+    model: Any,
+    splits: DatasetSplits,
+) -> dict[str, Any]:
+    """Compute full Table 1 and supplementary baseline metrics."""
+    x_eval, y_eval = _prepare_table1_eval_arrays(splits)
+    scores = model.score_anomaly(x_eval)
+    t1_true = _compute_table1_branch(scores, y_eval, splits, include_lower_thres=True)
+    t1_false = _compute_table1_branch(scores, y_eval, splits, include_lower_thres=False)
+    primary_branch = t1_false if model_name == "mlp" else t1_true
+
+    supp = _compute_supplementary_metrics(model_name, model, splits)
+    return {
+        "closed_set_auc_vs_benign": primary_branch["closed_set_mean"],
+        "open_set_auc_vs_benign": primary_branch["open_set_mean"],
+        "table1_primary_setting": "include_lower_thres=False"
+        if model_name == "mlp"
+        else "include_lower_thres=True",
+        "table1": {
+            "include_lower_thres_true": t1_true,
+            "include_lower_thres_false": t1_false,
+        },
+        **supp,
+    }
+
+
+def _fit_model(model_name: str, cfg: Config, splits: DatasetSplits) -> tuple[Any, bool]:
+    """Fit baseline model and return model instance plus reduced_run flag."""
     d_in = splits.x_train.shape[-1]
     benign_mask = splits.y_train == BENIGN_ID
     x_benign = splits.x_train[benign_mask]
-    epochs = 2 if cfg.smoke else cfg.epochs
+    epochs = 2 if cfg.smoke else cfg.baseline_epochs
+    n_est = 10 if cfg.smoke else 100
+    is_reduced = bool(
+        cfg.smoke or cfg.baseline_epochs < 200 or (model_name == "iforest" and n_est != 100)
+    )
 
     if model_name == "mlp":
         model = MLPBaseline(d_in, cfg.n_classes, cfg.hidden, cfg.dropout)
-        model.fit(splits.x_train, splits.y_train, epochs, cfg.batch_size, cfg.lr_peak)
-        s_test = model.score_known(splits.x_test)
-        s_zd = model.score_known(splits.x_zd) if splits.x_zd is not None else None
-        p_test = np.argmax(model.predict_proba(splits.x_test), axis=-1)
-        return model, s_test, s_zd, p_test
-
+        model.fit(splits.x_train, splits.y_train, epochs, cfg.batch_size, cfg.baseline_lr)
+        return model, is_reduced
     if model_name == "autoencoder":
         model = AutoencoderBaseline(d_in, hidden=[64, 32], latent_dim=16)
-        model.fit(x_benign, epochs, cfg.batch_size, cfg.lr_peak)
-        s_test = model.score_known(splits.x_test)
-        s_zd = model.score_known(splits.x_zd) if splits.x_zd is not None else None
-        return model, s_test, s_zd, None
-
+        model.fit(x_benign, epochs, cfg.batch_size, cfg.baseline_lr)
+        return model, is_reduced
     if model_name == "iforest":
-        n_est = 10 if cfg.smoke else 100
         model = IsolationForestBaseline(n_estimators=n_est, random_state=cfg.seed)
         model.fit(x_benign)
-        s_test = model.score_known(splits.x_test)
-        s_zd = model.score_known(splits.x_zd) if splits.x_zd is not None else None
-        return model, s_test, s_zd, None
-
+        return model, is_reduced
     raise ValueError(f"Unknown baseline model: {model_name}")
 
 
@@ -197,8 +269,8 @@ def run_baseline(
     output_dir: Optional[str | Path] = None,
 ) -> dict[str, Any]:
     """Train and evaluate baseline model, writing standardized D4.7 results record."""
-    _, s_test, s_zd, p_test = _fit_and_score_model(model_name, cfg, splits)
-    metrics = _eval_baseline_metrics(model_name, s_test, s_zd, splits.y_test, p_test)
+    model, is_reduced = _fit_model(model_name, cfg, splits)
+    metrics = _eval_baseline_model(model_name, model, splits)
 
     meta = get_run_metadata(cfg)
     out_dir = Path(output_dir or Path(cfg.results_dir) / "baselines")
@@ -211,7 +283,7 @@ def run_baseline(
         "metrics": metrics,
         "config": cfg.__dict__,
         "source": "re-run",
-        "reduced_run": cfg.smoke,
+        "reduced_run": is_reduced,
         "seed": cfg.seed,
         "data_source": cfg.data_source,
         "versions": meta["versions"],

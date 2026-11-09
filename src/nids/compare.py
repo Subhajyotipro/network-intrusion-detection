@@ -207,3 +207,4 @@ def build_comparison_tables(
     _write_markdown_table(md_path, all_rows, banner=banner)
 
     return {"csv": str(csv_path), "md": str(md_path)}
+

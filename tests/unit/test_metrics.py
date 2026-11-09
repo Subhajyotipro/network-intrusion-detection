@@ -221,3 +221,32 @@ def test_per_class_tables_construction() -> None:
         "fpr_at_95",
         "mean_similarity",
     }
+
+
+def test_mal_recall_and_macro_f1_hand_computed() -> None:
+    """Verify mal_recall and mal_macro_f1 on a tiny hand-computed example."""
+    from nids.metrics_eval import compute_f1_scores, compute_recalls
+
+    num_known = 4
+    y_true = np.array([0, 1, 1, 2, 2, 4], dtype=np.int64)
+    y_pred = np.array([0, 1, 2, 2, 2, 0], dtype=np.int64)
+    sims = np.array(
+        [
+            [0.9, 0.1, 0.0, 0.0],  # sample 0 (benign) -> skipped by mal_mask
+            [0.1, 0.8, 0.1, 0.0],  # sample 1: class 1 -> sliced argmax 0 -> pred 1 (correct)
+            [0.2, 0.1, 0.7, 0.0],  # sample 2: class 1 -> sliced argmax 1 -> pred 2 (wrong)
+            [0.1, 0.2, 0.6, 0.1],  # sample 3: class 2 -> sliced argmax 1 -> pred 2 (correct)
+            [0.1, 0.2, 0.6, 0.1],  # sample 4: class 2 -> sliced argmax 1 -> pred 2 (correct)
+            [0.2, 0.3, 0.3, 0.2],  # sample 5 (zero-day) -> skipped by mal_mask
+        ],
+        dtype=np.float32,
+    )
+    # mal_labels = y_true[mal_mask] - 1 = [0, 0, 1, 1]
+    # mal_preds = argmax(sims[mal_mask][:, 1:], axis=-1) = [0, 1, 1, 1]
+    # Recall: class 0 has 1/2 = 0.5, class 1 has 2/2 = 1.0 -> mean = 0.75
+    # F1: class 0 has 2/3, class 1 has 4/5 -> mean = 11/15 ≈ 0.7333333333333334
+    _, mal_rec = compute_recalls(y_true, y_pred, num_known, sims)
+    _, mal_f1 = compute_f1_scores(y_true, y_pred, num_known, sims)
+
+    assert np.isclose(mal_rec, 0.75, atol=1e-6)
+    assert np.isclose(mal_f1, 11.0 / 15.0, atol=1e-6)

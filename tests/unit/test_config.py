@@ -263,3 +263,14 @@ def test_data_source_validation():
     cfg_bad = Config(data_source="magic")
     with pytest.raises(ValueError, match="data_source must be 'auto', 'real', or 'synthetic'"):
         validate_config(cfg_bad)
+
+
+def test_run_metadata_contains_all_version_keys():
+    """Verify get_run_metadata contains all 6 required version keys per decisions.md D4.5."""
+    cfg = Config()
+    meta = get_run_metadata(cfg)
+    assert "versions" in meta
+    required_keys = {"python", "tensorflow", "keras", "numpy", "pandas", "sklearn"}
+    assert set(meta["versions"].keys()) == required_keys
+    for key, val in meta["versions"].items():
+        assert isinstance(val, str) and len(val) > 0

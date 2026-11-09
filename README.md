@@ -151,35 +151,55 @@ cp /path/to/lycos.csv data/lycos.csv
 
 > **Synthetic Data Mode:** If running on a lightweight dev environment without the full 800MB+ Lycos2017 dataset, pass `--synthetic` or `--smoke` to any script to generate schema-identical synthetic flows with matching feature counts and label spaces.
 
-### 3. Training
+### 3. Training & Resuming
 
-Train the CLOSR Stage-1 gatekeeper:
+Our unified CLI entrypoint `scripts/run.py` drives training, resuming, and evaluation.
+
+**Train CLOSR (Long Job — 200 epochs on Lycos2017):**
 ```bash
-python scripts/train.py --config configs/closr.yaml
+python scripts/run.py train --config configs/closr.yaml --set checkpoint_every=10
 ```
 
-Train the Siamese Stage-2 classifier:
+**Train CLAD (Long Job — 200 epochs on Lycos2017):**
 ```bash
-python scripts/train.py --config configs/siamese.yaml
+python scripts/run.py train --config configs/clad.yaml --set checkpoint_every=10
+```
+
+**Resume Training from Checkpoint:**
+Use the `--resume` CLI flag pointing to saved model weights:
+```bash
+python scripts/run.py train --config configs/closr.yaml --resume weights/closr_seed1.weights.h5
 ```
 
 *Quick smoke run for verification:*
 ```bash
-python scripts/train.py --config configs/closr.yaml --smoke
+python scripts/run.py train --config configs/closr.yaml --set smoke=true
 ```
 
 ### 4. Calibration & Gatekeeper Tuning
 
 Calibrate the rejection threshold $\tau$ using leave-one-attack-out validation:
 ```bash
-python scripts/calibrate.py --stage1-checkpoint results/weights/closr.pt.tar --method pseudo-zero-day
+python scripts/run.py calibrate --config configs/closr.yaml --checkpoint weights/closr_seed1.weights.h5
 ```
 
-### 5. Running the Cascade & Evaluation
+### 5. Running Evaluation & Cascade
 
-Evaluate the full CLOSR &rarr; Siamese cascade on known and zero-day traffic:
+Evaluate trained models on test and zero-day splits:
+
+**Evaluate CLOSR:**
 ```bash
-python scripts/evaluate.py --config configs/cascade.yaml
+python scripts/run.py eval --config configs/closr.yaml --checkpoint weights/closr_seed1.weights.h5
+```
+
+**Evaluate CLAD:**
+```bash
+python scripts/run.py eval --config configs/clad.yaml --checkpoint weights/clad_seed1.weights.h5
+```
+
+**Run End-to-End Cascade Evaluation:**
+```bash
+python scripts/run.py cascade --config configs/cascade.yaml
 ```
 
 ### 6. Interactive Inspection Demo

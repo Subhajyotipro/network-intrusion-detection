@@ -36,7 +36,8 @@ class AverageMeter:
     """Computes and stores running average, sum, count, and current value."""
 
     def __init__(self) -> None:
-        self.reset()
+        self.val = self.avg = self.sum = 0.0
+        self.count = 0
 
     def update(self, val: float, n: int = 1) -> None:
         """Update meter with a new scalar observation."""
@@ -44,10 +45,6 @@ class AverageMeter:
         self.sum += float(val) * n
         self.count += n
         self.avg = self.sum / self.count if self.count > 0 else 0.0
-
-    def reset(self) -> None:
-        """Reset running metrics."""
-        self.val, self.avg, self.sum, self.count = 0.0, 0.0, 0.0, 0
 
 
 def make_schedule(cfg: Config, total_steps: int) -> Callable[[int], float]:
@@ -80,16 +77,13 @@ def _generate_epoch_batches(
     max_batches: Optional[int] = None,
 ) -> list[tuple[np.ndarray, np.ndarray]]:
     """Generate reproducible class-balanced batches for a specific training epoch."""
-    n_samples = len(y)
-    effective_bsz = min(batch_size, n_samples)
-    drop_last = n_samples >= batch_size
-    epoch_seed = (seed + epoch * 10007) & 0x7FFFFFFF
+    n_samples, epoch_seed = len(y), (seed + epoch * 10007) & 0x7FFFFFFF
     sampler = class_balanced_sampler(
         x,
         y,
-        batch_size=effective_bsz,
+        batch_size=min(batch_size, n_samples),
         seed=epoch_seed,
-        drop_last=drop_last,
+        drop_last=n_samples >= batch_size,
         max_batches=max_batches,
     )
     return list(sampler)
@@ -111,8 +105,7 @@ def _train_step(
 ) -> tuple[tf.Tensor, tf.Tensor]:
     """Execute single gradient update step under GradientTape."""
     with tf.GradientTape() as tape:
-        z = net(x_b, training=True)
-        loss, frac_pos = loss_fn(z, y_b)
+        loss, frac_pos = loss_fn(net(x_b, training=True), y_b)
     grads = tape.gradient(loss, net.trainable_variables)
     optimizer.apply_gradients(zip(grads, net.trainable_variables))
     return loss, frac_pos
@@ -170,8 +163,8 @@ def _compute_steps_and_epochs(
         end_epoch = min(end_epoch, cap)
 
     eff_bsz = min(cfg.batch_size, n_samples)
-    drop_last = n_samples >= cfg.batch_size
-    b_count = n_samples // eff_bsz if drop_last else int(np.ceil(n_samples / eff_bsz))
+    exact_batches = n_samples // eff_bsz
+    b_count = exact_batches if n_samples >= cfg.batch_size else int(np.ceil(n_samples / eff_bsz))
     max_b = (cfg.max_batches or 3) if cfg.smoke else cfg.max_batches
     if max_b is not None:
         b_count = min(b_count, max_b)
@@ -184,10 +177,25 @@ def _make_optimizer(cfg: Config) -> tf.keras.optimizers.Optimizer:
     return tf.keras.optimizers.AdamW(
         learning_rate=cfg.lr_init,
         weight_decay=cfg.weight_decay,
-        beta_1=0.9,
-        beta_2=0.999,
         epsilon=cfg.adam_eps,
     )
+
+
+def _maybe_checkpoint_epoch(
+    epoch: int,
+    cfg: Config,
+    net: tf.keras.Model,
+    opt: tf.keras.optimizers.Optimizer,
+    step: int,
+    cmap: Any,
+    losses: list[float],
+    total_steps: int,
+) -> None:
+    """Save periodic training checkpoint if epoch matches checkpoint_every cadence."""
+    if cfg.checkpoint_every > 0 and epoch % cfg.checkpoint_every == 0:
+        base = Path(cfg.weights_dir) / f"{cfg.model_kind}_seed{cfg.seed}"
+        extra = {"epoch_losses": losses, "total_steps": total_steps, "total_epochs": cfg.epochs}
+        save_checkpoint(base, net, opt, step, cfg, cmap, cfg.seed, epoch, extra=extra)
 
 
 def _train_epochs(
@@ -201,11 +209,13 @@ def _train_epochs(
     bounds: tuple[int, int],
     start_step: int,
     total_steps: int,
+    saved_meta: Optional[dict[str, Any]] = None,
 ) -> tuple[int, int, list[float], float]:
     """Loop through epochs, recording losses and final positive fraction."""
     start_ep, end_ep = bounds
     step, last_ep, f_pos = start_step, start_ep, 0.0
-    epoch_losses, max_b = [], (cfg.max_batches or 3) if cfg.smoke else cfg.max_batches
+    epoch_losses = list((saved_meta or {}).get("extra", {}).get("epoch_losses", []))
+    max_b = (cfg.max_batches or 3) if cfg.smoke else cfg.max_batches
     for epoch in range(start_ep + 1, end_ep + 1):
         last_ep = epoch
         batches = _generate_epoch_batches(
@@ -224,9 +234,9 @@ def _train_epochs(
             cfg.log_every,
         )
         epoch_losses.append(ep_loss)
-        if cfg.checkpoint_every > 0 and epoch % cfg.checkpoint_every == 0:
-            ckpt_base = Path(cfg.weights_dir) / f"{cfg.model_kind}_seed{cfg.seed}"
-            save_checkpoint(ckpt_base, net, optimizer, step, cfg, data.class_map, cfg.seed, epoch)
+        _maybe_checkpoint_epoch(
+            epoch, cfg, net, optimizer, step, data.class_map, epoch_losses, total_steps
+        )
     return step, last_ep, epoch_losses, f_pos
 
 
@@ -240,13 +250,14 @@ def _format_train_result(
     f_pos: float,
 ) -> dict[str, Any]:
     """Format training return dictionary."""
+    final_loss = losses[-1] if losses else 0.0
     return {
         "model": net,
         "optimizer": opt,
         "step": step,
         "epoch": epoch,
         "total_steps": total_steps,
-        "final_loss": losses[-1] if losses else 0.0,
+        "final_loss": final_loss,
         "epoch_losses": losses,
         "final_frac_pos": f_pos,
     }
@@ -265,10 +276,8 @@ def train(
         raise ValueError(f"Unsupported model kind '{kind}'. Expected 'clad' or 'closr'.")
 
     tf.keras.utils.set_random_seed(cfg.seed)
-    loss_fn = _get_loss_fn(kind, cfg)
-    step_fn = tf.function(_train_step)
-    net = model or get_model(cfg, d_in=data.x_train.shape[-1])
-    optimizer = _make_optimizer(cfg)
+    loss_fn, step_fn = _get_loss_fn(kind, cfg), tf.function(_train_step)
+    net, optimizer = model or get_model(cfg, d_in=data.x_train.shape[-1]), _make_optimizer(cfg)
     saved_meta = load_checkpoint(resume_checkpoint, net, optimizer) if resume_checkpoint else {}
     step, start_ep, end_ep, total_steps = _compute_steps_and_epochs(
         cfg, len(data.y_train), saved_meta, max_epochs
@@ -285,5 +294,6 @@ def train(
         (start_ep, end_ep),
         step,
         total_steps,
+        saved_meta=saved_meta,
     )
     return _format_train_result(net, optimizer, step, last_ep, total_steps, ep_losses, f_pos)

@@ -60,6 +60,13 @@ def build_parser() -> argparse.ArgumentParser:
     for cmd in ["train", "eval", "calibrate", "cascade", "bench", "demo"]:
         sub = subparsers.add_parser(cmd, help=f"Execute {cmd} pipeline.")
         add_common_args(sub)
+        if cmd == "train":
+            sub.add_argument(
+                "--resume",
+                type=str,
+                default=None,
+                help="Path to saved model checkpoint to resume training from.",
+            )
         if cmd == "eval":
             sub.add_argument(
                 "--checkpoint",
@@ -136,10 +143,10 @@ def _write_train_record(
     return res_path
 
 
-def run_train(cfg: Config) -> dict[str, str]:
+def run_train(cfg: Config, resume_checkpoint: str | None = None) -> dict[str, str]:
     """Execute training pipeline on real or synthetic data and write D4.7 results."""
     data, dataset_type = _load_train_dataset(cfg)
-    train_res = train(cfg, kind=cfg.model_kind, data=data)
+    train_res = train(cfg, kind=cfg.model_kind, data=data, resume_checkpoint=resume_checkpoint)
 
     ckpt_dir = Path(cfg.weights_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -153,7 +160,11 @@ def run_train(cfg: Config) -> dict[str, str]:
         data.class_map,
         cfg.seed,
         epoch=train_res["epoch"],
-        extra={"total_steps": train_res["total_steps"], "total_epochs": cfg.epochs},
+        extra={
+            "epoch_losses": train_res["epoch_losses"],
+            "total_steps": train_res["total_steps"],
+            "total_epochs": cfg.epochs,
+        },
     )
 
     res_path = _write_train_record(cfg, train_res, dataset_type, Path(cfg.results_dir) / "train")
@@ -171,7 +182,7 @@ def main(args_list: list[str] | None = None) -> int:
 
     logger.info("Subcommand: %s, model: %s, seed: %d", args.subcommand, cfg.model_kind, cfg.seed)
     if args.subcommand == "train":
-        artifacts = run_train(cfg)
+        artifacts = run_train(cfg, resume_checkpoint=getattr(args, "resume", None))
         print(f"Training completed successfully: {artifacts}")
         return 0
     if args.subcommand == "eval":

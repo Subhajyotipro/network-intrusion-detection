@@ -59,26 +59,50 @@ def _contrastive_loss_calc(
 ) -> tuple[tf.Tensor, tf.Tensor]:
     """Calculate functional asymmetric contrastive loss for a single target class."""
     dists = tf.cast(dists, tf.float32)
-    y, tgt = tf.cast(y, tf.int32), tf.cast(target_class, tf.int32)
-    eq_pairs = tf.equal(tf.reshape(y, [-1, 1]), tf.reshape(y, [1, -1]))
-    sim_mask = tf.logical_and(eq_pairs, tf.equal(tf.reshape(y, [1, -1]), tgt))
-    dissim_mask = tf.logical_and(tf.logical_not(eq_pairs), tf.equal(tf.reshape(y, [-1, 1]), tgt))
+    y = tf.cast(y, tf.int32)
+    m = tf.cast(tf.equal(y, tf.cast(target_class, tf.int32)), tf.float32)
+    v = tf.expand_dims(m, axis=-1)
+    v_not = tf.expand_dims(1.0 - m, axis=-1)
 
-    sim_dists = tf.where(sim_mask, dists, 0.0)
-    n_sim = tf.reduce_sum(tf.cast(sim_dists > eps, tf.float32))
-    sim_calc = tf.square(sim_dists) if squared else sim_dists
-    sim_loss = tf.reduce_sum(sim_calc) / (n_sim + eps)
+    diff = tf.nn.relu(margin - dists)
+    diff_sq = tf.square(diff) if squared else diff
+    dist_sq = tf.square(dists) if squared else dists
 
-    margin_val = tf.cast(margin, tf.float32)
-    dissim_dists = tf.where(dissim_mask, dists, tf.fill(tf.shape(dists), margin_val))
-    dissim_diff = tf.nn.relu(margin_val - dissim_dists)
-    dissim_calc = tf.square(dissim_diff) if squared else dissim_diff
-    n_dissim = tf.reduce_sum(tf.cast(dissim_calc > eps, tf.float32))
-    dissim_loss = tf.reduce_sum(dissim_calc) / (n_dissim + eps)
+    sim_sum = tf.reduce_sum(v * tf.matmul(dist_sq, v))
+    n_sim = tf.reduce_sum(v * tf.matmul(tf.cast(dists > eps, tf.float32), v))
+    sim_loss = sim_sum / (n_sim + eps)
 
-    total_dissim = tf.reduce_sum(tf.cast(dissim_mask, tf.float32))
+    dissim_sum = tf.reduce_sum(v * tf.matmul(diff_sq, v_not))
+    n_dissim = tf.reduce_sum(v * tf.matmul(tf.cast(diff_sq > eps, tf.float32), v_not))
+    dissim_loss = dissim_sum / (n_dissim + eps)
+
+    n_tgt = tf.reduce_sum(m)
+    total_dissim = n_tgt * (tf.cast(tf.shape(y)[0], tf.float32) - n_tgt)
     frac_pos = n_dissim / (total_dissim + eps)
     return (alpha * sim_loss) + ((1.0 - alpha) * dissim_loss), frac_pos
+
+
+def clad_loss_and_frac(
+    x: tf.Tensor,
+    y: tf.Tensor,
+    target_class: int = 0,
+    margin: float = 1.0,
+    squared: bool = True,
+    alpha: float = 0.5,
+    eps: float = 1e-8,
+) -> tuple[tf.Tensor, tf.Tensor]:
+    """Calculate functional CLAD loss and fraction positive for target class."""
+    _check_finite(x, "x")
+    dists = pairwise_cosine_distance(x, eps=eps)
+    return _contrastive_loss_calc(
+        dists=dists,
+        y=y,
+        target_class=target_class,
+        margin=margin,
+        squared=squared,
+        alpha=alpha,
+        eps=eps,
+    )
 
 
 def clad_loss(
@@ -91,11 +115,9 @@ def clad_loss(
     eps: float = 1e-8,
 ) -> tf.Tensor:
     """Functional CLAD loss modeling benign traffic as a von Mises-Fisher distribution."""
-    _check_finite(x, "x")
-    dists = pairwise_cosine_distance(x, eps=eps)
-    loss, _ = _contrastive_loss_calc(
-        dists=dists,
-        y=y,
+    loss, _ = clad_loss_and_frac(
+        x,
+        y,
         target_class=target_class,
         margin=margin,
         squared=squared,
@@ -115,11 +137,9 @@ def clad_fraction_pos(
     eps: float = 1e-8,
 ) -> tf.Tensor:
     """Compute fraction of positive (margin-violating) dissimilar pairs for CLAD."""
-    _check_finite(x, "x")
-    dists = pairwise_cosine_distance(x, eps=eps)
-    _, frac_pos = _contrastive_loss_calc(
-        dists=dists,
-        y=y,
+    _, frac_pos = clad_loss_and_frac(
+        x,
+        y,
         target_class=target_class,
         margin=margin,
         squared=squared,
@@ -127,6 +147,54 @@ def clad_fraction_pos(
         eps=eps,
     )
     return frac_pos
+
+
+def _closr_dist_matrix(x: tf.Tensor, eps: float) -> tf.Tensor:
+    """Compute normalized pairwise cosine distance matrix with zeroed diagonal."""
+    x_norm = tf.linalg.l2_normalize(x, axis=-1, epsilon=eps)
+    x_t = tf.transpose(x_norm, [1, 0, 2])
+    sim_matrix = tf.matmul(x_t, x_t, transpose_b=True)
+    dist_matrix = tf.clip_by_value((1.0 - sim_matrix) / 2.0, 0.0, 1.0)
+    n_classes, batch_size = tf.shape(x)[1], tf.shape(x)[0]
+    return tf.linalg.set_diag(
+        dist_matrix, tf.zeros([n_classes, batch_size], dtype=dist_matrix.dtype)
+    )
+
+
+def closr_loss_and_frac(
+    x: tf.Tensor,
+    y: tf.Tensor,
+    margin: float = 1.0,
+    squared: bool = True,
+    alpha: float = 0.5,
+    eps: float = 1e-6,
+) -> tuple[tf.Tensor, tf.Tensor]:
+    """Compute vectorized CLOSR loss and mean fraction of positive pairs across classes."""
+    _check_finite(x, "x")
+    dist_matrix = _closr_dist_matrix(x, eps)
+    n_classes, batch_size = tf.shape(x)[1], tf.shape(x)[0]
+
+    one_hot = tf.one_hot(y, depth=n_classes, dtype=tf.float32)
+    v_col = tf.expand_dims(tf.transpose(one_hot, [1, 0]), axis=-1)
+    v_not_col = tf.expand_dims(tf.transpose(1.0 - one_hot, [1, 0]), axis=-1)
+
+    diff = tf.nn.relu(margin - dist_matrix)
+    diff_sq = tf.square(diff) if squared else diff
+    dist_sq = tf.square(dist_matrix) if squared else dist_matrix
+
+    sim_sum = tf.reduce_sum(v_col * tf.matmul(dist_sq, v_col), axis=[1, 2])
+    n_sim = tf.reduce_sum(
+        v_col * tf.matmul(tf.cast(dist_matrix > eps, tf.float32), v_col), axis=[1, 2]
+    )
+    dissim_sum = tf.reduce_sum(v_col * tf.matmul(diff_sq, v_not_col), axis=[1, 2])
+    n_dissim = tf.reduce_sum(
+        v_col * tf.matmul(tf.cast(diff_sq > eps, tf.float32), v_not_col), axis=[1, 2]
+    )
+
+    class_loss = (alpha * sim_sum / (n_sim + eps)) + ((1.0 - alpha) * dissim_sum / (n_dissim + eps))
+    counts = tf.reduce_sum(one_hot, axis=0)
+    total_dissim = counts * (tf.cast(batch_size, tf.float32) - counts)
+    return tf.reduce_mean(class_loss), tf.reduce_mean(n_dissim / (total_dissim + eps))
 
 
 def closr_loss(
@@ -138,32 +206,8 @@ def closr_loss(
     eps: float = 1e-6,
 ) -> tf.Tensor:
     """Functional CLOSR loss modeling known classes as per-class vMF distributions."""
-    _check_finite(x, "x")
-    # x shape: [B, C, D]
-    x_norm = tf.linalg.l2_normalize(x, axis=-1, epsilon=eps)
-    x_t = tf.transpose(x_norm, [1, 0, 2])  # [C, B, D]
-    sim_matrix = tf.matmul(x_t, x_t, transpose_b=True)  # [C, B, B]
-    dist_matrix = tf.clip_by_value((1.0 - sim_matrix) / 2.0, 0.0, 1.0)
-
-    n_classes = tf.shape(x)[1]
-    batch_size = tf.shape(x)[0]
-    dist_matrix = tf.linalg.set_diag(
-        dist_matrix, tf.zeros([n_classes, batch_size], dtype=dist_matrix.dtype)
-    )
-    losses = tf.TensorArray(tf.float32, size=n_classes)
-    for c in tf.range(n_classes):
-        loss_c, _ = _contrastive_loss_calc(
-            dists=dist_matrix[c],
-            y=y,
-            target_class=c,
-            margin=margin,
-            squared=squared,
-            alpha=alpha,
-            eps=eps,
-        )
-        losses = losses.write(c, loss_c)
-
-    return tf.reduce_mean(losses.stack())
+    loss, _ = closr_loss_and_frac(x, y, margin=margin, squared=squared, alpha=alpha, eps=eps)
+    return loss
 
 
 def closr_fraction_pos(
@@ -175,28 +219,5 @@ def closr_fraction_pos(
     eps: float = 1e-6,
 ) -> tf.Tensor:
     """Compute mean fraction of positive dissimilar pairs across all known classes."""
-    _check_finite(x, "x")
-    x_norm = tf.linalg.l2_normalize(x, axis=-1, epsilon=eps)
-    x_t = tf.transpose(x_norm, [1, 0, 2])
-    sim_matrix = tf.matmul(x_t, x_t, transpose_b=True)
-    dist_matrix = tf.clip_by_value((1.0 - sim_matrix) / 2.0, 0.0, 1.0)
-
-    n_classes = tf.shape(x)[1]
-    batch_size = tf.shape(x)[0]
-    dist_matrix = tf.linalg.set_diag(
-        dist_matrix, tf.zeros([n_classes, batch_size], dtype=dist_matrix.dtype)
-    )
-    fracs = tf.TensorArray(tf.float32, size=n_classes)
-    for c in tf.range(n_classes):
-        _, frac_c = _contrastive_loss_calc(
-            dists=dist_matrix[c],
-            y=y,
-            target_class=c,
-            margin=margin,
-            squared=squared,
-            alpha=alpha,
-            eps=eps,
-        )
-        fracs = fracs.write(c, frac_c)
-
-    return tf.reduce_mean(fracs.stack())
+    _, frac = closr_loss_and_frac(x, y, margin=margin, squared=squared, alpha=alpha, eps=eps)
+    return frac

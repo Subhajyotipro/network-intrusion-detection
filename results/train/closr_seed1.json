@@ -1,15 +1,15 @@
 {
   "metrics": {
-    "final_loss": 0.3556189338366191,
+    "final_loss": 0.35283034046490985,
     "epoch_losses": [
-      0.3579714596271515,
-      0.3556189338366191
+      0.36172855893770856,
+      0.35283034046490985
     ],
     "final_frac_pos": 1.0
   },
   "config": {
     "data_path": "data/lycos.csv",
-    "data_source": "synthetic",
+    "data_source": "real",
     "results_dir": "results",
     "weights_dir": "weights",
     "upstream_dir": "third_party/CLOSR",
@@ -83,7 +83,7 @@
     "deterministic": false
   },
   "seed": 1,
-  "git_commit": "9b8a6bacd5239523f4ede89348cf4c72dbbc7084",
+  "git_commit": "ceb708cc320db7ea5fd0b0d38fbfbc540a4a17dd",
   "versions": {
     "python": "3.11.9",
     "tensorflow": "2.21.0",
@@ -93,7 +93,7 @@
     "sklearn": "1.9.1"
   },
   "device": "cpu",
-  "dataset": "synthetic",
+  "dataset": "real",
   "epochs": 2,
   "reduced_run": true
 }

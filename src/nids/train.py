@@ -25,7 +25,7 @@ import tensorflow as tf
 from nids.checkpoint import load_checkpoint
 from nids.config import Config
 from nids.data import DatasetSplits, class_balanced_sampler
-from nids.losses import clad_fraction_pos, clad_loss, closr_fraction_pos, closr_loss
+from nids.losses import clad_loss_and_frac, closr_loss_and_frac
 from nids.models import get_model
 
 logger = logging.getLogger(__name__)
@@ -94,40 +94,34 @@ def _generate_epoch_batches(
     return list(sampler)
 
 
-def _get_loss_fns(kind: str, cfg: Config) -> tuple[Callable, Callable]:
-    """Instantiate loss callable and diagnostic fraction positive callable."""
+def _get_loss_fn(kind: str, cfg: Config) -> Callable:
+    """Instantiate unified loss callable returning (loss, frac_pos)."""
     if kind == "clad":
-        return (
-            lambda z, y: clad_loss(z, y, margin=cfg.margin, squared=cfg.squared),
-            lambda z, y: clad_fraction_pos(z, y, margin=cfg.margin, squared=cfg.squared),
-        )
-    return (
-        lambda z, y: closr_loss(z, y, margin=cfg.margin, squared=cfg.squared),
-        lambda z, y: closr_fraction_pos(z, y, margin=cfg.margin, squared=cfg.squared),
-    )
+        return lambda z, y: clad_loss_and_frac(z, y, margin=cfg.margin, squared=cfg.squared)
+    return lambda z, y: closr_loss_and_frac(z, y, margin=cfg.margin, squared=cfg.squared)
 
 
 def _train_step(
     net: tf.keras.Model,
     optimizer: tf.keras.optimizers.Optimizer,
-    loss_fn: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
+    loss_fn: Callable[[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]],
     x_b: tf.Tensor,
     y_b: tf.Tensor,
 ) -> tuple[tf.Tensor, tf.Tensor]:
     """Execute single gradient update step under GradientTape."""
     with tf.GradientTape() as tape:
         z = net(x_b, training=True)
-        loss = loss_fn(z, y_b)
+        loss, frac_pos = loss_fn(z, y_b)
     grads = tape.gradient(loss, net.trainable_variables)
     optimizer.apply_gradients(zip(grads, net.trainable_variables))
-    return loss, z
+    return loss, frac_pos
 
 
 def _run_epoch(
     net: tf.keras.Model,
     optimizer: tf.keras.optimizers.Optimizer,
-    loss_fn: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
-    frac_fn: Callable[[tf.Tensor, tf.Tensor], tf.Tensor],
+    loss_fn: Callable[[tf.Tensor, tf.Tensor], tuple[tf.Tensor, tf.Tensor]],
+    step_fn: Callable,
     batches: list[tuple[np.ndarray, np.ndarray]],
     schedule_fn: Callable[[int], float],
     step: int,
@@ -142,10 +136,10 @@ def _run_epoch(
         step += 1
         lr = schedule_fn(step)
         optimizer.learning_rate.assign(lr)
-        loss_val, z = _train_step(net, optimizer, loss_fn, tf.constant(x_np), tf.constant(y_np))
+        loss_val, frac_pos = step_fn(net, optimizer, loss_fn, tf.constant(x_np), tf.constant(y_np))
         if not tf.math.is_finite(loss_val):
             raise ValueError(f"Non-finite loss {float(loss_val)} at step {step}")
-        last_f_pos = float(frac_fn(z, tf.constant(y_np)))
+        last_f_pos = float(frac_pos)
         loss_m.update(float(loss_val), len(y_np))
         frac_m.update(last_f_pos, len(y_np))
         if step % log_every == 0:
@@ -199,7 +193,7 @@ def _train_epochs(
     net: tf.keras.Model,
     optimizer: tf.keras.optimizers.Optimizer,
     loss_fn: Callable,
-    frac_fn: Callable,
+    step_fn: Callable,
     data: DatasetSplits,
     cfg: Config,
     schedule_fn: Callable[[int], float],
@@ -220,7 +214,7 @@ def _train_epochs(
             net,
             optimizer,
             loss_fn,
-            frac_fn,
+            step_fn,
             batches,
             schedule_fn,
             step,
@@ -267,7 +261,8 @@ def train(
         raise ValueError(f"Unsupported model kind '{kind}'. Expected 'clad' or 'closr'.")
 
     tf.keras.utils.set_random_seed(cfg.seed)
-    loss_fn, frac_fn = _get_loss_fns(kind, cfg)
+    loss_fn = _get_loss_fn(kind, cfg)
+    step_fn = tf.function(_train_step)
     net = model or get_model(cfg, d_in=data.x_train.shape[-1])
     optimizer = _make_optimizer(cfg)
     saved_meta = load_checkpoint(resume_checkpoint, net, optimizer) if resume_checkpoint else {}
@@ -279,7 +274,7 @@ def train(
         net,
         optimizer,
         loss_fn,
-        frac_fn,
+        step_fn,
         data,
         cfg,
         schedule_fn,

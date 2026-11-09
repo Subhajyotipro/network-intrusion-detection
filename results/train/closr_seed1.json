@@ -86,7 +86,7 @@
     "deterministic": false
   },
   "seed": 1,
-  "git_commit": "acb0db36134d8d997bc5554dbef17c542162cf14",
+  "git_commit": "1cdf2c6126c10e7a6a18563eebe21df84d7d1f98",
   "versions": {
     "python": "3.11.9",
     "tensorflow": "2.21.0",

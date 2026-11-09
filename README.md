@@ -157,30 +157,30 @@ Our unified CLI entrypoint `scripts/run.py` drives training, resuming, and evalu
 
 **Train CLOSR (Long Job — 200 epochs on Lycos2017):**
 ```bash
-python scripts/run.py train --config configs/closr.yaml --set checkpoint_every=10
+python scripts/run.py train --config configs/default.yaml --set data_source=real --set checkpoint_every=10
 ```
 
 **Train CLAD (Long Job — 200 epochs on Lycos2017):**
 ```bash
-python scripts/run.py train --config configs/clad.yaml --set checkpoint_every=10
+python scripts/run.py train --config configs/clad.yaml --set data_source=real --set checkpoint_every=10
 ```
 
 **Resume Training from Checkpoint:**
 Use the `--resume` CLI flag pointing to saved model weights:
 ```bash
-python scripts/run.py train --config configs/closr.yaml --resume weights/closr_seed1.weights.h5
+python scripts/run.py train --config configs/default.yaml --resume weights/closr_seed1.weights.h5
 ```
 
 *Quick smoke run for verification:*
 ```bash
-python scripts/run.py train --config configs/closr.yaml --set smoke=true
+python scripts/run.py train --config configs/default.yaml --set smoke=true
 ```
 
 ### 4. Calibration & Gatekeeper Tuning
 
 Calibrate the rejection threshold $\tau$ using leave-one-attack-out validation:
 ```bash
-python scripts/run.py calibrate --config configs/closr.yaml --checkpoint weights/closr_seed1.weights.h5
+python scripts/run.py calibrate --config configs/default.yaml --checkpoint weights/closr_seed1.weights.h5
 ```
 
 ### 5. Running Evaluation & Cascade
@@ -189,7 +189,7 @@ Evaluate trained models on test and zero-day splits:
 
 **Evaluate CLOSR:**
 ```bash
-python scripts/run.py eval --config configs/closr.yaml --checkpoint weights/closr_seed1.weights.h5
+python scripts/run.py eval --config configs/default.yaml --checkpoint weights/closr_seed1.weights.h5
 ```
 
 **Evaluate CLAD:**

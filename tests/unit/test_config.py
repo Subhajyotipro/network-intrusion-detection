@@ -176,7 +176,7 @@ def test_get_run_metadata():
         assert meta_nogit["git_commit"] == "unknown"
 
 
-def test_cli_subcommands():
+def test_cli_subcommands(tmp_path: Path):
     """Verify that run.py parses subcommands and options correctly."""
     parser = build_parser()
     for cmd in ["train", "eval", "calibrate", "cascade", "bench", "demo"]:
@@ -185,7 +185,9 @@ def test_cli_subcommands():
         assert args.config == "configs/default.yaml"
         assert args.overrides == ["epochs=5"]
 
-    # Test main execution in smoke mode with explicit synthetic data
+    # Test main execution in smoke mode with explicit synthetic data and isolated tmp dirs
+    res_dir = tmp_path / "results"
+    w_dir = tmp_path / "weights"
     exit_code = run_main(
         [
             "train",
@@ -195,6 +197,10 @@ def test_cli_subcommands():
             "smoke=true",
             "--set",
             "data_source=synthetic",
+            "--set",
+            f"results_dir={res_dir}",
+            "--set",
+            f"weights_dir={w_dir}",
         ]
     )
     assert exit_code == 0

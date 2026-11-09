@@ -39,6 +39,28 @@ COLUMNS = [
     "data_source",
 ]
 
+T1_COLS = [
+    "model",
+    "protocol",
+    "closed_set_mean",
+    "open_set_mean",
+    "source",
+    "reduced_run",
+    "seed",
+    "data_source",
+]
+T2_COLS = [
+    "model",
+    "protocol",
+    "closed_set_acc",
+    "open_set_auc",
+    "open_auc",
+    "source",
+    "reduced_run",
+    "seed",
+    "data_source",
+]
+
 
 def _clean_markdown_cell(s: str) -> str:
     """Strip markdown formatting asterisks, underscores, and backticks."""
@@ -93,7 +115,7 @@ def _build_upstream_rows(readme_path: str | Path) -> list[dict[str, Any]]:
                     "source": "upstream-reported",
                     "reduced_run": False,
                     "seed": "n/a",
-                    "data_source": "real",
+                    "data_source": "n/a",
                 }
             )
     t2_models = ["CLOSR", "MultiStage", "DOC", "OPENMAX", "CRSOR", "Siamese Network"]
@@ -111,7 +133,7 @@ def _build_upstream_rows(readme_path: str | Path) -> list[dict[str, Any]]:
                     "source": "upstream-reported",
                     "reduced_run": False,
                     "seed": "n/a",
-                    "data_source": "real",
+                    "data_source": "n/a",
                 }
             )
     return rows
@@ -124,40 +146,63 @@ def _format_cell(val: Any) -> str:
     return str(val)
 
 
+def _normalize_model_name(raw_name: str) -> str:
+    """Normalize model identifier for table display."""
+    clean = raw_name.lower().replace("_seed1", "").replace("_eval", "").replace("_synthetic", "")
+    if clean in ("iforest", "isolation_forest"):
+        return "IFOREST"
+    return clean.upper()
+
+
+def _parse_rerun_json(path: Path, is_synthetic: bool) -> Optional[dict[str, Any]]:
+    """Parse a single rerun JSON file into standardized table record dictionary."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            rec = json.load(f)
+        ds = rec.get("data_source", rec.get("dataset", "real"))
+        if (ds == "synthetic") != is_synthetic or rec.get("seed", 1) != 1:
+            return None
+        raw = rec.get("model", path.stem.replace("_eval", ""))
+        if "clad" in raw.lower():
+            m_name, proto = "CLAD", PROTOCOL_TABLE_1
+        elif "closr" in raw.lower():
+            m_name, proto = "CLOSR", PROTOCOL_TABLE_2
+        else:
+            m_name, proto = _normalize_model_name(raw), PROTOCOL_TABLE_1
+        m = rec.get("metrics", {})
+        return {
+            "model": f"{m_name} (re-run)",
+            "model_key": m_name,
+            "protocol": proto,
+            "closed_set_mean": m.get("closed_set_auc_vs_benign", m.get("known_mean_auroc", "n/a")),
+            "open_set_mean": m.get("open_set_auc_vs_benign", m.get("zd_mean_auroc", "n/a")),
+            "closed_set_acc": m.get("closed_set_acc", "n/a"),
+            "open_set_auc": m.get("open_set_auc", "n/a"),
+            "open_auc": m.get("open_auc", "n/a"),
+            "source": "re-run",
+            "reduced_run": rec.get("reduced_run", False),
+            "seed": 1,
+            "data_source": ds,
+        }
+    except Exception:
+        return None
+
+
 def _load_rerun_records(results_dir: Path, is_synthetic: bool) -> list[dict[str, Any]]:
     """Load re-run baseline and evaluation records from results directory."""
     records: list[dict[str, Any]] = []
     b_dir, e_dir = results_dir / "baselines", results_dir / "eval"
-    for p in list(b_dir.glob("*.json")) + list(e_dir.glob("*_eval.json")):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                rec = json.load(f)
-            ds = rec.get("data_source", rec.get("dataset", "real"))
-            if (ds == "synthetic") != is_synthetic:
-                continue
-            m = rec.get("metrics", {})
-            name = rec.get("model", p.stem.replace("_eval", ""))
-            is_t1 = "closed_set_auc_vs_benign" in m or name in ("clad", "autoencoder", "iforest")
-            proto = PROTOCOL_TABLE_1 if is_t1 else PROTOCOL_TABLE_2
-            records.append(
-                {
-                    "model": f"{name.upper()} (re-run)",
-                    "protocol": proto,
-                    "closed_set_mean": m.get(
-                        "closed_set_auc_vs_benign", m.get("known_mean_auroc", "n/a")
-                    ),
-                    "open_set_mean": m.get("open_set_auc_vs_benign", m.get("zd_mean_auroc", "n/a")),
-                    "closed_set_acc": m.get("closed_set_acc", "n/a"),
-                    "open_set_auc": m.get("open_set_auc", "n/a"),
-                    "open_auc": m.get("open_auc", "n/a"),
-                    "source": "re-run",
-                    "reduced_run": rec.get("reduced_run", False),
-                    "seed": rec.get("seed", 1),
-                    "data_source": ds,
-                }
-            )
-        except Exception:
+    seen_models: set[tuple[str, str]] = set()
+
+    for p in sorted(list(b_dir.glob("*.json")) + list(e_dir.glob("*_eval.json"))):
+        row = _parse_rerun_json(p, is_synthetic)
+        if row is None:
             continue
+        key = (row["model_key"], row["protocol"])
+        if key in seen_models:
+            continue
+        seen_models.add(key)
+        records.append({k: v for k, v in row.items() if k != "model_key"})
     return records
 
 
@@ -168,29 +213,6 @@ def _write_csv_table(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writeheader()
         for r in rows:
             writer.writerow({k: _format_cell(r.get(k, "n/a")) for k in COLUMNS})
-
-
-T1_COLS = [
-    "model",
-    "protocol",
-    "closed_set_mean",
-    "open_set_mean",
-    "source",
-    "reduced_run",
-    "seed",
-    "data_source",
-]
-T2_COLS = [
-    "model",
-    "protocol",
-    "closed_set_acc",
-    "open_set_auc",
-    "open_auc",
-    "source",
-    "reduced_run",
-    "seed",
-    "data_source",
-]
 
 
 def _format_markdown_section(title: str, cols: list[str], rows: list[dict[str, Any]]) -> list[str]:

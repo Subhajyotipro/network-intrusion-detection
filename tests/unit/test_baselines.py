@@ -192,3 +192,84 @@ def test_comparison_table_structure_and_protocol(tmp_path: Path):
         reader = csv.DictReader(f)
         for row in reader:
             assert row["protocol"] in ALLOWED_PROTOCOLS
+
+
+def test_compare_clad_rerun_and_upstream_datasource(tmp_path: Path):
+    """Verify CLAD re-run row in Table 1, absence in Table 2, and upstream data_source is n/a."""
+    import json
+
+    res_dir = tmp_path / "results"
+    eval_dir = res_dir / "eval"
+    eval_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = tmp_path / "out"
+
+    clad_rec = {
+        "model": "clad",
+        "metrics": {"known_mean_auroc": 0.999278, "zd_mean_auroc": 0.992735},
+        "seed": 1,
+        "data_source": "real",
+        "reduced_run": True,
+    }
+    with open(eval_dir / "clad_seed1_eval.json", "w", encoding="utf-8") as f:
+        json.dump(clad_rec, f)
+
+    tables = build_comparison_tables(results_dir=res_dir, output_dir=out_dir)
+    with open(tables["csv"], encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+
+    t1_rows = [r for r in rows if r["protocol"] == "binary AUROC vs benign (Table 1)"]
+    t2_rows = [r for r in rows if r["protocol"] == "closed+open-set (Table 2)"]
+
+    clad_t1 = [r for r in t1_rows if r["model"] == "CLAD (re-run)"]
+    assert len(clad_t1) == 1
+    assert float(clad_t1[0]["closed_set_mean"]) == 0.999278
+    assert float(clad_t1[0]["open_set_mean"]) == 0.992735
+    assert clad_t1[0]["source"] == "re-run"
+
+    assert not any("CLAD" in r["model"] for r in t2_rows)
+
+    upstream_rows = [r for r in rows if r["source"] == "upstream-reported"]
+    assert len(upstream_rows) > 0
+    for r in upstream_rows:
+        assert r["data_source"] == "n/a"
+
+
+def test_cli_log_model_label(caplog, tmp_path: Path):
+    """Verify run.py logs correct model name for baseline and compare subcommands."""
+    import logging
+
+    from scripts.run import main as run_main
+
+    res_dir = tmp_path / "res"
+    with caplog.at_level(logging.INFO):
+        run_main(
+            [
+                "baseline",
+                "--model",
+                "iforest",
+                "--config",
+                "configs/default.yaml",
+                "--set",
+                "smoke=true",
+                "--set",
+                "data_source=synthetic",
+                "--set",
+                f"results_dir={res_dir}",
+            ]
+        )
+        assert any("Subcommand: baseline, model: iforest" in rec.message for rec in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        run_main(
+            [
+                "compare",
+                "--config",
+                "configs/default.yaml",
+                "--set",
+                "data_source=synthetic",
+                "--set",
+                f"results_dir={res_dir}",
+            ]
+        )
+        assert any("Subcommand: compare, model: all" in rec.message for rec in caplog.records)

@@ -197,7 +197,12 @@ def main(args_list: list[str] | None = None) -> int:
     setup_logging()
     cfg = load_config(path=args.config, overrides=args.overrides)
 
-    logger.info("Subcommand: %s, model: %s, seed: %d", args.subcommand, cfg.model_kind, cfg.seed)
+    log_model = (
+        getattr(args, "model", cfg.model_kind)
+        if args.subcommand == "baseline"
+        else ("all" if args.subcommand == "compare" else cfg.model_kind)
+    )
+    logger.info("Subcommand: %s, model: %s, seed: %d", args.subcommand, log_model, cfg.seed)
     if args.subcommand == "train":
         artifacts = run_train(cfg, resume_checkpoint=getattr(args, "resume", None))
         print(f"Training completed successfully: {artifacts}")

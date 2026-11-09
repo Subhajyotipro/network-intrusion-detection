@@ -26,6 +26,7 @@ from typing import Any
 from nids.checkpoint import save_checkpoint
 from nids.config import Config, get_run_metadata, load_config, setup_logging
 from nids.data import generate_synthetic_data, load_data
+from nids.eval_pipeline import run_eval_pipeline
 from nids.train import train
 
 logger = logging.getLogger("nids.cli")
@@ -59,6 +60,13 @@ def build_parser() -> argparse.ArgumentParser:
     for cmd in ["train", "eval", "calibrate", "cascade", "bench", "demo"]:
         sub = subparsers.add_parser(cmd, help=f"Execute {cmd} pipeline.")
         add_common_args(sub)
+        if cmd == "eval":
+            sub.add_argument(
+                "--checkpoint",
+                type=str,
+                default=None,
+                help="Path to saved model checkpoint weights.",
+            )
 
     return parser
 
@@ -166,10 +174,16 @@ def main(args_list: list[str] | None = None) -> int:
         artifacts = run_train(cfg)
         print(f"Training completed successfully: {artifacts}")
         return 0
+    if args.subcommand == "eval":
+        data, dataset_type = _load_train_dataset(cfg)
+        ckpt_arg = getattr(args, "checkpoint", None)
+        artifacts = run_eval_pipeline(cfg, data, dataset_type, checkpoint_override=ckpt_arg)
+        print(f"Evaluation completed successfully: {artifacts}")
+        return 0
 
     print(
         f"Subcommand '{args.subcommand}' resolved config successfully. "
-        f"Execution is not implemented yet (PR1-T06+)."
+        f"Execution is not implemented yet (PR2+)."
     )
     return 0
 

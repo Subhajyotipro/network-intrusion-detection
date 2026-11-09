@@ -39,6 +39,7 @@ wheels/
 # Large datasets & binaries
 *.csv
 !configs/*.csv
+!results/**/*.csv
 *.tar
 *.tar.gz
 *.pt
@@ -48,8 +49,8 @@ data/*.csv
 weights/*
 !weights/.gitkeep
 results/weights/
-results/splits/*.npz
-!results/splits/.gitkeep
+results/**/*.npz
+!results/**/.gitkeep
 
 # Testing & Coverage
 .coverage

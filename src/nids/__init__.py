@@ -17,3 +17,4 @@ import os
 
 # Set default Keras home to /tmp/.keras to prevent sandbox permission issues
 os.environ.setdefault("KERAS_HOME", "/tmp/.keras")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")

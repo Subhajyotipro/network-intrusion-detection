@@ -57,6 +57,8 @@ checkpoint_every: 0
 
 # Inference & Calibration
 scorer: "upstream"
+eval_batch_size: 4096
+eval_max_rows: 0
 grid_size: 200
 target_acceptance:
   - 0.95

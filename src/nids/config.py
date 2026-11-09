@@ -101,6 +101,8 @@ class Config:
 
     # Inference & Calibration
     scorer: str = "upstream"
+    eval_batch_size: int = 4096
+    eval_max_rows: int = 0
     grid_size: int = 200
     target_acceptance: list[float] = field(default_factory=lambda: [0.95, 0.99])
     f_beta: float = 1.0
@@ -163,6 +165,9 @@ def validate_config(cfg: Config) -> None:
         ("batch_size", cfg.batch_size),
         ("d_out", cfg.d_out),
         ("n_classes", cfg.n_classes),
+        ("eval_batch_size", cfg.eval_batch_size),
     ):
         if val <= 0:
             raise ValueError(f"{name} must be positive, got {val}")
+    if cfg.eval_max_rows < 0:
+        raise ValueError(f"eval_max_rows must be non-negative, got {cfg.eval_max_rows}")

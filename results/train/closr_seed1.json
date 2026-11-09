@@ -60,6 +60,8 @@
     "log_every": 10,
     "checkpoint_every": 0,
     "scorer": "upstream",
+    "eval_batch_size": 4096,
+    "eval_max_rows": 0,
     "grid_size": 200,
     "target_acceptance": [
       0.95,
@@ -84,7 +86,7 @@
     "deterministic": false
   },
   "seed": 1,
-  "git_commit": "7c63dc0ce9a83089d577c193837d4f91613d6e3f",
+  "git_commit": "acb0db36134d8d997bc5554dbef17c542162cf14",
   "versions": {
     "python": "3.11.9",
     "tensorflow": "2.21.0",

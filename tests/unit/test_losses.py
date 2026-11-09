@@ -20,8 +20,10 @@ import tensorflow as tf
 from nids.losses import (
     clad_fraction_pos,
     clad_loss,
+    clad_loss_and_frac,
     closr_fraction_pos,
     closr_loss,
+    closr_loss_and_frac,
 )
 from tests.unit.np_reference import (
     np_clad_fraction_pos,
@@ -329,3 +331,40 @@ def test_duplicate_rows_parity_with_numpy_reference():
         f_np_c = float(np_clad_fraction_pos(x_clad, y))
         np.testing.assert_allclose(l_tf_c, l_np_c, rtol=1e-5, atol=1e-6)
         np.testing.assert_allclose(f_tf_c, f_np_c, rtol=1e-5, atol=1e-6)
+
+
+def test_active_vs_inactive_hinge_pairs_analytical():
+    """Verify loss and fraction_pos on batch with both active and inactive dissimilar pairs."""
+    # Class 0: samples 0 and 1 (sample 1 duplicate of 0 -> d=0 <= eps)
+    # Class 1: samples 2 and 3 (sample 2 d=0.5 < 0.8 -> active; sample 3 d=1.0 > 0.8 -> inactive)
+    x_c0 = np.array(
+        [[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]], dtype=np.float32
+    )
+    x_c1 = np.array(
+        [[0.0, 1.0, 0.0], [-1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float32
+    )
+    x_closr = np.stack([x_c0, x_c1], axis=1)
+    y = np.array([0, 0, 1, 1], dtype=np.int32)
+
+    # CLAD analytical: n_sim=0, 2 active dissimilar (diff=0.3), 2 inactive (diff=0).
+    # dissim_loss = (0.3^2 * 2) / 2 = 0.09; loss = 0.5 * 0.09 = 0.045; frac_pos = 2/4 = 0.5
+    l_tf_c, f_tf_c = clad_loss_and_frac(
+        tf.constant(x_c0), tf.constant(y), target_class=0, margin=0.8, squared=True
+    )
+    l_np_c = np_clad_loss(x_c0, y, target_class=0, margin=0.8, squared=True)
+    f_np_c = np_clad_fraction_pos(x_c0, y, target_class=0, margin=0.8, squared=True)
+
+    np.testing.assert_allclose(float(l_tf_c), 0.045, atol=1e-5)
+    np.testing.assert_allclose(float(f_tf_c), 0.5, atol=1e-5)
+    np.testing.assert_allclose(float(l_tf_c), l_np_c, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(float(f_tf_c), f_np_c, rtol=1e-5, atol=1e-6)
+
+    # CLOSR analytical: symmetrical across both classes -> mean loss = 0.045, frac = 0.5
+    l_tf, f_tf = closr_loss_and_frac(tf.constant(x_closr), tf.constant(y), margin=0.8, squared=True)
+    l_np = np_closr_loss(x_closr, y, margin=0.8, squared=True)
+    f_np = np_closr_fraction_pos(x_closr, y, margin=0.8, squared=True)
+
+    np.testing.assert_allclose(float(l_tf), 0.045, atol=1e-5)
+    np.testing.assert_allclose(float(f_tf), 0.5, atol=1e-5)
+    np.testing.assert_allclose(float(l_tf), l_np, rtol=1e-5, atol=1e-6)
+    np.testing.assert_allclose(float(f_tf), f_np, rtol=1e-5, atol=1e-6)

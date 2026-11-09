@@ -48,6 +48,7 @@ class Config:
 
     # Paths
     data_path: str = "data/lycos.csv"
+    data_source: str = "auto"
     results_dir: str = "results"
     weights_dir: str = "weights"
     upstream_dir: str = "third_party/CLOSR"
@@ -141,6 +142,10 @@ def get_default_config(model_kind: str = "closr") -> Config:
 
 def validate_config(cfg: Config) -> None:
     """Validate hyperparameter bounds and invariants."""
+    if cfg.data_source not in ("auto", "real", "synthetic"):
+        raise ValueError(
+            f"data_source must be 'auto', 'real', or 'synthetic', got '{cfg.data_source}'"
+        )
     if cfg.epochs <= 0:
         raise ValueError(f"epochs must be positive, got {cfg.epochs}")
     if not (0.0 <= cfg.test_ratio < 1.0):

@@ -19,12 +19,14 @@ from unittest.mock import patch
 import pytest
 
 from nids.config import (
+    Config,
     get_default_config,
     get_run_metadata,
     load_config,
     resolve_device,
     save_config,
     set_seed,
+    validate_config,
 )
 from scripts.run import build_parser
 from scripts.run import main as run_main
@@ -183,8 +185,18 @@ def test_cli_subcommands():
         assert args.config == "configs/default.yaml"
         assert args.overrides == ["epochs=5"]
 
-    # Test main execution
-    exit_code = run_main(["train", "--config", "configs/default.yaml", "--set", "epochs=2"])
+    # Test main execution in smoke mode with explicit synthetic data
+    exit_code = run_main(
+        [
+            "train",
+            "--config",
+            "configs/default.yaml",
+            "--set",
+            "smoke=true",
+            "--set",
+            "data_source=synthetic",
+        ]
+    )
     assert exit_code == 0
 
 
@@ -237,3 +249,17 @@ def test_config_validation_and_bug_hunt(tmp_path: Path):
 def test_set_seed():
     """Verify set_seed executes without crashing."""
     set_seed(42)
+
+
+def test_data_source_validation():
+    """Verify data_source field accepts valid modes and rejects invalid strings."""
+    cfg_auto = Config(data_source="auto")
+    validate_config(cfg_auto)
+    cfg_real = Config(data_source="real")
+    validate_config(cfg_real)
+    cfg_synth = Config(data_source="synthetic")
+    validate_config(cfg_synth)
+
+    cfg_bad = Config(data_source="magic")
+    with pytest.raises(ValueError, match="data_source must be 'auto', 'real', or 'synthetic'"):
+        validate_config(cfg_bad)

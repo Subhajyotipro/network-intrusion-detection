@@ -78,7 +78,7 @@ def test_data_splits_no_index_overlap_and_zero_day_absence(tiny_synthetic_csv_pa
     assert splits.y_zd is not None
     assert np.all(splits.y_zd == UNKNOWN_ID)
     assert len(splits.zd_names) == len(splits.y_zd)
-    assert "Heartbleed" in splits.zd_names
+    assert "heartbleed" in splits.zd_names
 
     # Check that y_train and y_val only contain known class IDs
     known_ids = set(range(splits.class_map.n_known))
@@ -266,5 +266,5 @@ def test_real_lycos_data_pipeline():
     )
     assert splits.d_in == 72
     assert splits.class_map.names[0] == "benign"
-    assert "Heartbleed" in splits.class_map.zero_day_names
-    assert any("SQL Injection" in name for name in splits.class_map.zero_day_names)
+    assert "heartbleed" in splits.class_map.zero_day_names
+    assert "webattack_sql_injection" in splits.class_map.zero_day_names

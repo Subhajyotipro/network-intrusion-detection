@@ -415,6 +415,8 @@ Everything else: decide using this file, log it, continue. A failing component a
 | DV15 | Upstream regenerates splits in memory without on-disk persistence | Save split indices (`train`, `val`, `test`) to compressed NPZ files via `save_split_indices` | Guarantees exact split persistence, reproducibility, and verifiable zero-leakage partitions (§5.1) |
 | DV16 | Upstream masks self-pairs with `dist > eps` | We zero the diagonal explicitly (`tf.linalg.set_diag`) before masking | Float32 roundoff on unit vectors can leave self-distance above eps, erroneously counting self-pairs in `n_sim` |
 | DV17 | PyTorch AdamW epsilon placement $\frac{\hat{m}}{\sqrt{\hat{v}} + \epsilon}$ | Keras AdamW folds bias-correction into numerator $\frac{\alpha \cdot m}{\sqrt{v} + \epsilon}$ | Built-in Keras optimizer formulation; epsilon set to upstream `1e-8` via Config; expected difference negligible |
+| DV18 | AGENTS §2.3 human-readable class names with spaces/caps | Raw Lycos2017 labels are lowercase snake_case (`webattack_sql_injection`, `heartbleed`, etc.) | Direct alignment with raw dataset CSV without synthetic renaming overhead |
+| DV19 | Silent fallback to synthetic data when CSV absent | Tri-state `data_source: "auto" \| "real" \| "synthetic"`; prominent warning on fallback | Prevents accidental execution on synthetic data when real data is intended |
 
 ## Appendix C — Where AGENTS.md points to this file
 

@@ -1,6 +1,7 @@
 # Default experiment configuration (CLOSR defaults)
 # Paths
 data_path: "data/lycos.csv"
+data_source: "auto"
 results_dir: "results"
 weights_dir: "weights"
 upstream_dir: "third_party/CLOSR"

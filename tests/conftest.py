@@ -34,8 +34,8 @@ def tiny_synthetic_df() -> pd.DataFrame:
         n_samples_zd=20,
         n_features=8,
         seed=42,
-        known_classes=["benign", "Botnet", "DDoS", "Portscan"],
-        zero_day_classes=["Heartbleed"],
+        known_classes=["benign", "bot", "ddos", "portscan"],
+        zero_day_classes=["heartbleed"],
     )
 
 

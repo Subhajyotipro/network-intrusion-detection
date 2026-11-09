@@ -48,6 +48,8 @@ data/*.csv
 weights/*
 !weights/.gitkeep
 results/weights/
+results/splits/*.npz
+!results/splits/.gitkeep
 
 # Testing & Coverage
 .coverage

@@ -63,19 +63,40 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _load_real(cfg: Config) -> Any:
+    """Load real dataset from configured data_path."""
+    return load_data(
+        cfg.data_path,
+        val_ratio=cfg.val_ratio,
+        sample_thres=cfg.sample_thres,
+        split_seed=cfg.seed,
+    )
+
+
 def _load_train_dataset(cfg: Config) -> tuple[Any, str]:
-    """Load real dataset if present, otherwise fall back to synthetic."""
+    """Load real or synthetic dataset based on cfg.data_source."""
+    if cfg.data_source == "synthetic":
+        logger.info("Dataset mode: synthetic (forced via data_source='synthetic')")
+        return generate_synthetic_data(cfg), "synthetic"
+
     data_path = Path(cfg.data_path)
+    if cfg.data_source == "real":
+        if not data_path.is_file():
+            raise FileNotFoundError(
+                f"data_source='real' requested, but file not found at: {data_path.resolve()}"
+            )
+        logger.info("Dataset mode: real (loading from %s)", data_path)
+        return _load_real(cfg), "real"
+
     if data_path.is_file():
-        logger.info("Loading real dataset from %s", data_path)
-        data = load_data(
-            cfg.data_path,
-            val_ratio=cfg.val_ratio,
-            sample_thres=cfg.sample_thres,
-            split_seed=cfg.seed,
-        )
-        return data, "real"
-    logger.info("Dataset %s not found; falling back to synthetic generator", data_path)
+        logger.info("Dataset mode: real (auto-detected at %s)", data_path)
+        return _load_real(cfg), "real"
+
+    logger.warning(
+        "PROMINENT WARNING: data_source='auto' but real dataset was not found at %s. "
+        "Falling back to synthetic data generator!",
+        data_path,
+    )
     return generate_synthetic_data(cfg), "synthetic"
 
 

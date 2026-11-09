@@ -1,14 +1,15 @@
 {
   "metrics": {
-    "final_loss": 0.36080852150917053,
+    "final_loss": 0.3556189338366191,
     "epoch_losses": [
-      0.3643074333667755,
-      0.36080852150917053
+      0.3579714596271515,
+      0.3556189338366191
     ],
     "final_frac_pos": 1.0
   },
   "config": {
     "data_path": "data/lycos.csv",
+    "data_source": "synthetic",
     "results_dir": "results",
     "weights_dir": "weights",
     "upstream_dir": "third_party/CLOSR",
@@ -47,14 +48,14 @@
     "lr_peak": 1e-05,
     "lr_final": 1e-06,
     "warmup_frac": 0.1,
-    "epochs": 2,
+    "epochs": 200,
     "seed": 1,
     "seeds": [
       1,
       2,
       3
     ],
-    "smoke": false,
+    "smoke": true,
     "max_batches": null,
     "log_every": 10,
     "scorer": "upstream",
@@ -82,7 +83,7 @@
     "deterministic": false
   },
   "seed": 1,
-  "git_commit": "e181fc822721024f10c9a7a3b86fac2c458d74b6",
+  "git_commit": "9b8a6bacd5239523f4ede89348cf4c72dbbc7084",
   "versions": {
     "python": "3.11.9",
     "tensorflow": "2.21.0",

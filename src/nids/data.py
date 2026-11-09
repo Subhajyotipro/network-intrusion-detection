@@ -35,10 +35,10 @@ IDENTIFIER_COLS: list[str] = (
 ).split(",")
 
 KNOWN_CLASSES: list[str] = (
-    "benign,Botnet,DDoS,DoS (Golden Eye),DoS (Hulk),DoS (Slow HTTP Test),"
-    "DoS (Slow Loris),FTP Patator,Portscan,SSH Patator,Web Attack (Brute Force),Web Attack (XSS)"
+    "benign,bot,ddos,dos_goldeneye,dos_hulk,dos_slowhttptest,"
+    "dos_slowloris,ftp_patator,portscan,ssh_patator,webattack_bruteforce,webattack_xss"
 ).split(",")
-ZERO_DAY_CLASSES: list[str] = ["Heartbleed", "Web Attack (SQL Injection)"]
+ZERO_DAY_CLASSES: list[str] = ["heartbleed", "webattack_sql_injection"]
 
 
 @dataclass

@@ -197,12 +197,36 @@ python scripts/run.py eval --config configs/default.yaml --checkpoint weights/cl
 python scripts/run.py eval --config configs/clad.yaml --checkpoint weights/clad_seed1.weights.h5
 ```
 
-**Run End-to-End Cascade Evaluation:**
+### 6. Baselines & Benchmark Comparison (PR1-T07)
+
+Run individual baselines on the real dataset and generate the comprehensive comparison tables:
+
+**Run MLP Classifier (Re-run):**
 ```bash
-python scripts/run.py cascade --config configs/cascade.yaml
+python scripts/run.py baseline --model mlp --config configs/default.yaml --set data_source=real
 ```
 
-### 6. Interactive Inspection Demo
+**Run Autoencoder (Re-run):**
+```bash
+python scripts/run.py baseline --model autoencoder --config configs/default.yaml --set data_source=real
+```
+
+**Run Isolation Forest (Re-run):**
+```bash
+python scripts/run.py baseline --model iforest --config configs/default.yaml --set data_source=real
+```
+
+**Aggregate Comparison Tables (Re-run + Upstream Reported):**
+```bash
+python scripts/run.py compare --config configs/default.yaml --set data_source=real
+```
+
+*Runtime Caveats on Apple Silicon (8 GB RAM):*
+- **Isolation Forest:** Trains on ~894k benign samples (`n_estimators=100`, `max_samples="auto"`), scoring in chunks of 4096. Memory bounded (<1 GB RAM); runtime ~1–2 minutes on CPU.
+- **Autoencoder:** Trains symmetric encoder-decoder on benign samples using AdamW and MSE loss. Memory ~300 MB; runtime ~2–3 minutes for 20 epochs.
+- **MLP Softmax:** Supervised classifier trained with AdamW and sparse cross-entropy on known classes. Memory ~500 MB; runtime ~3–5 minutes.
+
+### 7. Interactive Inspection Demo
 
 Run the self-contained demonstration script to process sample flows and inspect decision paths:
 ```bash

@@ -23,7 +23,9 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from nids.baselines import run_baseline
 from nids.checkpoint import save_checkpoint
+from nids.compare import build_comparison_tables
 from nids.config import Config, get_run_metadata, load_config, setup_logging
 from nids.data import generate_synthetic_data, load_data
 from nids.eval_pipeline import run_eval_pipeline
@@ -57,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    for cmd in ["train", "eval", "calibrate", "cascade", "bench", "demo"]:
+    for cmd in ["train", "eval", "calibrate", "cascade", "bench", "demo", "baseline", "compare"]:
         sub = subparsers.add_parser(cmd, help=f"Execute {cmd} pipeline.")
         add_common_args(sub)
         if cmd == "train":
@@ -73,6 +75,21 @@ def build_parser() -> argparse.ArgumentParser:
                 type=str,
                 default=None,
                 help="Path to saved model checkpoint weights.",
+            )
+        if cmd == "baseline":
+            sub.add_argument(
+                "--model",
+                type=str,
+                required=True,
+                choices=["mlp", "autoencoder", "iforest"],
+                help="Baseline model architecture to run.",
+            )
+        if cmd in ("baseline", "compare"):
+            sub.add_argument(
+                "--output-dir",
+                type=str,
+                default=None,
+                help="Directory to save baseline outputs or comparison tables.",
             )
 
     return parser
@@ -190,6 +207,20 @@ def main(args_list: list[str] | None = None) -> int:
         ckpt_arg = getattr(args, "checkpoint", None)
         artifacts = run_eval_pipeline(cfg, data, dataset_type, checkpoint_override=ckpt_arg)
         print(f"Evaluation completed successfully: {artifacts}")
+        return 0
+    if args.subcommand == "baseline":
+        data, dataset_type = _load_train_dataset(cfg)
+        out_dir = getattr(args, "output_dir", None)
+        artifacts = run_baseline(args.model, cfg, data, output_dir=out_dir)
+        print(f"Baseline run completed successfully: {artifacts}")
+        return 0
+    if args.subcommand == "compare":
+        out_dir = getattr(args, "output_dir", None)
+        is_syn = cfg.data_source != "real"
+        tables = build_comparison_tables(
+            results_dir=cfg.results_dir, output_dir=out_dir, synthetic_mode=is_syn
+        )
+        print(f"Comparison tables generated successfully: {tables}")
         return 0
 
     print(

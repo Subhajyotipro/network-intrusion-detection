@@ -197,6 +197,12 @@ python scripts/run.py eval --config configs/default.yaml --checkpoint weights/cl
 python scripts/run.py eval --config configs/clad.yaml --checkpoint weights/clad_seed1.weights.h5
 ```
 
+**Generate deterministic t-SNE figures from saved arrays or an existing checkpoint:**
+```bash
+python scripts/run.py tsne --config configs/default.yaml --set seed=1
+python scripts/run.py tsne --config configs/clad.yaml --set seed=1
+```
+
 ### 6. Baselines & Benchmark Comparison (PR1-T07)
 
 Run individual baselines on the real dataset and generate the comprehensive comparison tables:

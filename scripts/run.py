@@ -23,6 +23,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from nids.baselines import run_baseline
 from nids.checkpoint import save_checkpoint
 from nids.compare import build_comparison_tables
@@ -30,6 +32,7 @@ from nids.config import Config, get_run_metadata, load_config, setup_logging
 from nids.data import generate_synthetic_data, load_data
 from nids.eval_pipeline import run_eval_pipeline
 from nids.train import train
+from nids.viz import create_tsne_figure
 
 logger = logging.getLogger("nids.cli")
 
@@ -59,7 +62,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
 
-    for cmd in ["train", "eval", "calibrate", "cascade", "bench", "demo", "baseline", "compare"]:
+    for cmd in [
+        "train",
+        "eval",
+        "tsne",
+        "calibrate",
+        "cascade",
+        "bench",
+        "demo",
+        "baseline",
+        "compare",
+    ]:
         sub = subparsers.add_parser(cmd, help=f"Execute {cmd} pipeline.")
         add_common_args(sub)
         if cmd == "train":
@@ -75,6 +88,13 @@ def build_parser() -> argparse.ArgumentParser:
                 type=str,
                 default=None,
                 help="Path to saved model checkpoint weights.",
+            )
+        if cmd == "tsne":
+            sub.add_argument(
+                "--checkpoint",
+                type=str,
+                default=None,
+                help="Saved model checkpoint to evaluate if matching arrays are absent.",
             )
         if cmd == "baseline":
             sub.add_argument(
@@ -189,6 +209,35 @@ def run_train(cfg: Config, resume_checkpoint: str | None = None) -> dict[str, st
     return {"results_json": str(res_path), "checkpoint": saved_ckpts["weights"]}
 
 
+def run_tsne(cfg: Config, checkpoint: str | None = None) -> dict[str, str]:
+    """Generate a t-SNE figure from saved eval arrays or an existing checkpoint."""
+    arrays_path = Path(cfg.results_dir) / "eval" / f"{cfg.model_kind}_seed{cfg.seed}_arrays.npz"
+    record_path = arrays_path.with_name(f"{cfg.model_kind}_seed{cfg.seed}_eval.json")
+    if not arrays_path.is_file():
+        data, dataset_type = _load_train_dataset(cfg)
+        eval_artifacts = run_eval_pipeline(cfg, data, dataset_type, checkpoint_override=checkpoint)
+        arrays_path = Path(eval_artifacts["arrays_npz"])
+        record_path = Path(eval_artifacts["eval_json"])
+    with np.load(arrays_path, allow_pickle=False) as arrays:
+        if "tsne_embeddings" not in arrays or "tsne_labels" not in arrays:
+            raise ValueError(f"Saved evaluation arrays lack t-SNE embeddings/labels: {arrays_path}")
+        embeddings, labels = arrays["tsne_embeddings"], arrays["tsne_labels"]
+    with open(record_path, encoding="utf-8") as file:
+        record = json.load(file)
+    metadata = get_run_metadata(cfg)
+    _, figure_path, sidecar_path = create_tsne_figure(
+        embeddings=embeddings,
+        labels=labels,
+        cfg=cfg,
+        model_kind=cfg.model_kind,
+        dataset=record["dataset"],
+        reduced_run=record["reduced_run"],
+        git_commit=metadata["git_commit"],
+        versions=metadata["versions"],
+    )
+    return {"figure": str(figure_path), "metadata": str(sidecar_path)}
+
+
 def main(args_list: list[str] | None = None) -> int:
     """Main entrypoint parsing subcommands and executing dispatch."""
     parser = build_parser()
@@ -212,6 +261,10 @@ def main(args_list: list[str] | None = None) -> int:
         ckpt_arg = getattr(args, "checkpoint", None)
         artifacts = run_eval_pipeline(cfg, data, dataset_type, checkpoint_override=ckpt_arg)
         print(f"Evaluation completed successfully: {artifacts}")
+        return 0
+    if args.subcommand == "tsne":
+        artifacts = run_tsne(cfg, checkpoint=getattr(args, "checkpoint", None))
+        logger.info("t-SNE artifacts generated: %s", artifacts)
         return 0
     if args.subcommand == "baseline":
         data, dataset_type = _load_train_dataset(cfg)

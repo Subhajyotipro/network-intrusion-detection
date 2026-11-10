@@ -97,6 +97,7 @@ def _evaluate_model(
     model: tf.keras.Model,
     data: Any,
     x_eval: np.ndarray,
+    sample_labels: np.ndarray,
     y_mapped: np.ndarray,
     zd_labels: np.ndarray,
 ) -> tuple[dict[str, Any], pd.DataFrame, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -106,7 +107,13 @@ def _evaluate_model(
             model, data.x_train, data.y_train, data.class_map.n_known, cfg.eval_batch_size
         )
         sims, scores, preds, embs, idx = stream_evaluate_closr(
-            model, x_eval, centroids, cfg.eval_batch_size, cfg.tsne_max_points, cfg.seed
+            model,
+            x_eval,
+            centroids,
+            cfg.eval_batch_size,
+            cfg.tsne_max_points,
+            cfg.seed,
+            sample_labels=sample_labels,
         )
         m = compute_closr_metrics(y_mapped, preds, sims, scores, data.class_map.n_known)
         df = build_closr_per_class_table(data.class_map, y_mapped, preds, sims, scores, zd_labels)
@@ -114,7 +121,13 @@ def _evaluate_model(
 
     centroid = get_clad_centroid(model, data.x_train, data.y_train, BENIGN_ID, cfg.eval_batch_size)
     sims, embs, idx = stream_evaluate_clad(
-        model, x_eval, centroid, cfg.eval_batch_size, cfg.tsne_max_points, cfg.seed
+        model,
+        x_eval,
+        centroid,
+        cfg.eval_batch_size,
+        cfg.tsne_max_points,
+        cfg.seed,
+        sample_labels=sample_labels,
     )
     preds = (sims < 0.5).astype(np.int64)
     m = compute_clad_metrics(y_mapped, sims, data.class_map.n_known - 1)
@@ -202,7 +215,7 @@ def run_eval_pipeline(
     metadata = load_checkpoint(ckpt_path, model)
 
     x_eval, y_eval, y_mapped, zd_labels, red_eval = prepare_eval_data(cfg, data)
-    res = _evaluate_model(cfg, model, data, x_eval, y_mapped, zd_labels)
+    res = _evaluate_model(cfg, model, data, x_eval, y_eval, y_mapped, zd_labels)
     metrics, df, scores, preds, embs, tsne_idx = res
 
     epochs = metadata.get("epoch", cfg.epochs)

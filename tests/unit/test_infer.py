@@ -171,11 +171,19 @@ def test_streaming_eval_memory_bounded_and_exact(closr_toy_model: tf.keras.Model
     rng = np.random.default_rng(78901)
     n_samples, n_classes = 80, 4
     x = rng.standard_normal((n_samples, 10), dtype=np.float32)
+    sample_labels = np.arange(n_samples, dtype=np.int64) % n_classes
+    sample_labels[:2] = -1
     cents = rng.standard_normal((n_classes, 16), dtype=np.float32)
     cents /= np.linalg.norm(cents, axis=-1, keepdims=True)
 
     sims, scores, preds, embs, idx = stream_evaluate_closr(
-        closr_toy_model, x, cents, batch_size=17, tsne_max_points=25, seed=999
+        closr_toy_model,
+        x,
+        cents,
+        batch_size=17,
+        tsne_max_points=25,
+        seed=999,
+        sample_labels=sample_labels,
     )
 
     full_embs = closr_toy_model(x, training=False).numpy()
@@ -197,11 +205,19 @@ def test_streaming_eval_clad(clad_toy_model: tf.keras.Model) -> None:
     """Verify streaming eval for CLAD model matches full-batch calculation."""
     rng = np.random.default_rng(89012)
     x = rng.standard_normal((60, 10), dtype=np.float32)
+    sample_labels = np.arange(len(x), dtype=np.int64) % 4
+    sample_labels[:2] = -1
     cent = rng.standard_normal((8,), dtype=np.float32)
     cent /= np.linalg.norm(cent)
 
     sims, embs, idx = stream_evaluate_clad(
-        clad_toy_model, x, cent, batch_size=15, tsne_max_points=20, seed=123
+        clad_toy_model,
+        x,
+        cent,
+        batch_size=15,
+        tsne_max_points=20,
+        seed=123,
+        sample_labels=sample_labels,
     )
 
     full_embs = clad_toy_model(x, training=False).numpy()

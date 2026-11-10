@@ -138,12 +138,42 @@ def predict_closed_set(sims: np.ndarray) -> np.ndarray:
     return np.argmax(sims, axis=-1)
 
 
-def _subsample_indices(n_total: int, max_points: int, seed: int) -> np.ndarray:
-    """Select sorted seeded subsample indices for t-SNE visualization."""
-    if n_total <= max_points or max_points <= 0:
-        return np.arange(n_total)
+def stratified_tsne_indices(labels: np.ndarray, max_points: int, seed: int) -> np.ndarray:
+    """Keep every zero-day index and sample known classes proportionally and deterministically."""
+    labels = np.asarray(labels)
+    if labels.ndim != 1 or not np.issubdtype(labels.dtype, np.integer):
+        raise ValueError("t-SNE labels must be a one-dimensional integer array")
+    if max_points <= 0:
+        raise ValueError("tsne_max_points must be positive")
+    zero_day = np.flatnonzero(labels < 0)
+    known = np.flatnonzero(labels >= 0)
+    if zero_day.size == 0:
+        raise ValueError("t-SNE labels contain no zero-day samples")
+    if zero_day.size > max_points:
+        raise ValueError("tsne_max_points cannot retain every zero-day sample")
+    if labels.size <= max_points:
+        return np.arange(labels.size)
+    classes, counts = np.unique(labels[known], return_counts=True)
+    known_budget = max_points - zero_day.size
+    if known_budget < classes.size:
+        raise ValueError("tsne_max_points is too small to represent every known class")
+
+    ideal = known_budget * counts / counts.sum()
+    allocations = np.maximum(1, np.floor(ideal).astype(int))
+    allocations = np.minimum(allocations, counts)
+    while allocations.sum() > known_budget:
+        candidates = np.flatnonzero(allocations > 1)
+        allocations[candidates[np.argmax(allocations[candidates] - ideal[candidates])]] -= 1
+    while allocations.sum() < known_budget:
+        candidates = np.flatnonzero(allocations < counts)
+        allocations[candidates[np.argmax(ideal[candidates] - allocations[candidates])]] += 1
+
     rng = np.random.default_rng(seed)
-    return np.sort(rng.choice(n_total, size=max_points, replace=False))
+    sampled = [zero_day]
+    for class_id, count in zip(classes, allocations):
+        class_indices = np.flatnonzero(labels == class_id)
+        sampled.append(rng.choice(class_indices, size=count, replace=False))
+    return np.sort(np.concatenate(sampled))
 
 
 def stream_evaluate_closr(
@@ -153,10 +183,13 @@ def stream_evaluate_closr(
     batch_size: int = 4096,
     tsne_max_points: int = 5000,
     seed: int = 42,
+    sample_labels: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Stream evaluate CLOSR chunkwise without accumulating full test embeddings."""
     n = len(x)
-    tsne_idx = _subsample_indices(n, tsne_max_points, seed)
+    if sample_labels is None or len(sample_labels) != n:
+        raise ValueError("sample_labels must align with the evaluation rows")
+    tsne_idx = stratified_tsne_indices(sample_labels, tsne_max_points, seed)
     tsne_set = set(tsne_idx.tolist())
     all_sims, tsne_embs = [], []
 
@@ -192,10 +225,13 @@ def stream_evaluate_clad(
     batch_size: int = 4096,
     tsne_max_points: int = 5000,
     seed: int = 42,
+    sample_labels: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Stream evaluate CLAD chunkwise without accumulating full test embeddings."""
     n = len(x)
-    tsne_idx = _subsample_indices(n, tsne_max_points, seed)
+    if sample_labels is None or len(sample_labels) != n:
+        raise ValueError("sample_labels must align with the evaluation rows")
+    tsne_idx = stratified_tsne_indices(sample_labels, tsne_max_points, seed)
     tsne_set = set(tsne_idx.tolist())
     all_sims, tsne_embs = [], []
 

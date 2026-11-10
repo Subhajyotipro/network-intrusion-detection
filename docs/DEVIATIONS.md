@@ -2,6 +2,10 @@
 
 This file tracks all pre-registered and runtime deviations from `AGENTS.md` specifications.
 
+**DV23 implementation update:** The original seeded reservoir wording below is superseded in T09 by a seeded class-stratified sample that always retains all zero-day rows, because those rows are too rare to survive uniform sampling reliably.
+
+**DV31:** Upstream README presents CLAD and contrastive-loss t-SNE figures but does not specify how CLOSR's per-class embeddings should be combined. We flatten `[n, n_classes, d]` to `[n, n_classes*d]` before projecting one point per flow, following the task's explicit fallback when the upstream projection is unclear.
+
 ## Canonical Deviations Register (Aligned with decisions.md Appendix B)
 
 | ID | AGENTS.md / Upstream says | We do instead | Why |

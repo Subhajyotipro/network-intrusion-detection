@@ -83,6 +83,28 @@ bench_batch_sizes:
 
 # Visualization
 tsne_max_points: 5000
+tsne_n_components: 2
+tsne_perplexity: 30.0
+tsne_early_exaggeration: 12.0
+tsne_learning_rate: "auto"
+tsne_max_iter: 1000
+tsne_n_iter_without_progress: 300
+tsne_min_grad_norm: 1.0e-7
+tsne_metric: "euclidean"
+tsne_init: "pca"
+tsne_method: "barnes_hut"
+tsne_angle: 0.5
+tsne_n_jobs: 1
+tsne_verbose: 0
+tsne_marker_size: 12.0
+tsne_alpha: 0.85
+tsne_axis_padding: 0.04
+tsne_tiny_group_threshold: 25
+tsne_figure_size: [9.0, 7.0]
+tsne_colors:
+  benign: "#00876c"
+  malicious: "#d64b3c"
+  zero_day: "#2878b5"
 
 # Device & Determinism
 device: "auto"

@@ -122,6 +122,31 @@ class Config:
     timed_runs: int = 200
     bench_batch_sizes: list[int] = field(default_factory=lambda: [1, 32, 1024])
     tsne_max_points: int = 5000
+    tsne_n_components: int = 2
+    tsne_perplexity: float = 30.0
+    tsne_early_exaggeration: float = 12.0
+    tsne_learning_rate: str | float = "auto"
+    tsne_max_iter: int = 1000
+    tsne_n_iter_without_progress: int = 300
+    tsne_min_grad_norm: float = 1e-7
+    tsne_metric: str = "euclidean"
+    tsne_init: str = "pca"
+    tsne_method: str = "barnes_hut"
+    tsne_angle: float = 0.5
+    tsne_n_jobs: int = 1
+    tsne_verbose: int = 0
+    tsne_marker_size: float = 12.0
+    tsne_alpha: float = 0.85
+    tsne_axis_padding: float = 0.04
+    tsne_tiny_group_threshold: int = 25
+    tsne_figure_size: list[float] = field(default_factory=lambda: [9.0, 7.0])
+    tsne_colors: dict[str, str] = field(
+        default_factory=lambda: {
+            "benign": "#00876c",
+            "malicious": "#d64b3c",
+            "zero_day": "#2878b5",
+        }
+    )
 
     # Device & Determinism
     device: str = "auto"
@@ -177,3 +202,9 @@ def validate_config(cfg: Config) -> None:
             raise ValueError(f"{name} must be positive, got {val}")
     if cfg.eval_max_rows < 0:
         raise ValueError(f"eval_max_rows must be non-negative, got {cfg.eval_max_rows}")
+    if cfg.tsne_max_points <= 0 or cfg.tsne_n_components != 2 or cfg.tsne_n_jobs != 1:
+        raise ValueError("t-SNE requires positive max points, 2 components, and n_jobs=1")
+    if cfg.tsne_perplexity <= 0.0 or cfg.tsne_max_iter < 250:
+        raise ValueError("t-SNE perplexity must be positive and max_iter must be at least 250")
+    if cfg.tsne_init != "pca":
+        raise ValueError("tsne_init must be 'pca' for deterministic project visualizations")

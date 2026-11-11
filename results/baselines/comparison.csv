@@ -1,4 +1,7 @@
 model,protocol,closed_set_mean,open_set_mean,closed_set_acc,open_set_auc,open_auc,source,reduced_run,seed,data_source
+AUTOENCODER (re-run),binary AUROC vs benign (Table 1),0.874429,0.857935,n/a,n/a,n/a,re-run,True,1,real
+IFOREST (re-run),binary AUROC vs benign (Table 1),0.803184,0.861697,n/a,n/a,n/a,re-run,True,1,real
+MLP (re-run),binary AUROC vs benign (Table 1),0.999396,0.715434,0.997750,0.685560,0.684017,re-run,True,1,real
 CLAD (re-run),binary AUROC vs benign (Table 1),0.999278,0.992735,n/a,n/a,n/a,re-run,True,1,real
 CLOSR (re-run),closed+open-set (Table 2),n/a,n/a,0.979121,0.952900,0.933005,re-run,True,1,real
 CLAD (upstream),binary AUROC vs benign (Table 1),0.999855,0.996627,n/a,n/a,n/a,upstream-reported,False,n/a,n/a

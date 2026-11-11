@@ -1,6 +1,9 @@
 ### Table 1: Binary AUROC vs Benign (One-vs-Benign)
 | model | protocol | closed_set_mean | open_set_mean | source | reduced_run | seed | data_source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| AUTOENCODER (re-run) | binary AUROC vs benign (Table 1) | 0.874429 | 0.857935 | re-run | True | 1 | real |
+| IFOREST (re-run) | binary AUROC vs benign (Table 1) | 0.803184 | 0.861697 | re-run | True | 1 | real |
+| MLP (re-run) | binary AUROC vs benign (Table 1) | 0.999396 | 0.715434 | re-run | True | 1 | real |
 | CLAD (re-run) | binary AUROC vs benign (Table 1) | 0.999278 | 0.992735 | re-run | True | 1 | real |
 | CLAD (upstream) | binary AUROC vs benign (Table 1) | 0.999855 | 0.996627 | upstream-reported | False | n/a | n/a |
 | AE (upstream) | binary AUROC vs benign (Table 1) | 0.857221 | 0.840659 | upstream-reported | False | n/a | n/a |

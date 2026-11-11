@@ -26,6 +26,13 @@ os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 from nids.data import generate_synthetic_dataset  # noqa: E402
 
 
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Give dataset-backed tests a longer timeout without affecting synthetic tests."""
+    for item in items:
+        if item.get_closest_marker("real"):
+            item.add_marker(pytest.mark.timeout(600))
+
+
 @pytest.fixture
 def tiny_synthetic_df() -> pd.DataFrame:
     """Fixture providing a tiny synthetic dataset (8 features, 4 known + 1 zero-day class)."""

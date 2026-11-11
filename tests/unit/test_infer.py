@@ -166,6 +166,34 @@ def test_upstream_scorer_matches_reference() -> None:
     np.testing.assert_array_equal(preds, ref_preds)
 
 
+def test_every_registered_scorer_orders_known_above_unknown() -> None:
+    """Verify each implemented scorer returns larger known-ness for stronger similarities."""
+    sims = np.array([[0.1, 0.2, 0.1], [0.8, 0.9, 0.8]], dtype=np.float32)
+    for scorer in SCORERS.values():
+        scores = scorer(sims)
+        assert scores[1] > scores[0]
+
+
+def test_get_embeddings_does_not_open_gradient_tape(
+    closr_toy_model: tf.keras.Model, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify embedding extraction evaluates with training disabled and no gradient tape."""
+    calls = []
+    original_call = closr_toy_model.call
+
+    def checked_call(inputs: tf.Tensor, training: bool = False) -> tf.Tensor:
+        calls.append(training)
+        return original_call(inputs, training=training)
+
+    def forbidden_tape(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Inference must not construct GradientTape")
+
+    monkeypatch.setattr(closr_toy_model, "call", checked_call)
+    monkeypatch.setattr(tf, "GradientTape", forbidden_tape)
+    get_embeddings(closr_toy_model, np.ones((2, 10), dtype=np.float32), batch_size=1)
+    assert calls and not any(calls)
+
+
 def test_streaming_eval_memory_bounded_and_exact(closr_toy_model: tf.keras.Model) -> None:
     """Verify streaming eval produces exact same results as non-chunked, bounding memory."""
     rng = np.random.default_rng(78901)

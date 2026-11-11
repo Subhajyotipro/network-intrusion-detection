@@ -58,6 +58,7 @@ def test_hand_computed_tiny_cases() -> None:
     # OpenAUC product
     assert np.isclose(open_auc(0.8, 0.9), 0.72)
     assert np.isnan(open_auc(float("nan"), 0.9))
+    assert np.isnan(closed_set_accuracy(np.array([], dtype=int), np.array([], dtype=int)))
 
 
 def test_score_direction() -> None:
@@ -119,6 +120,13 @@ def test_division_by_zero_in_recall() -> None:
     all_neg = np.zeros(5, dtype=int)
     scores = np.array([0.1, 0.2, 0.3, 0.4, 0.5])
     assert np.isnan(fpr_at_recall(all_neg, scores))
+
+    from nids.metrics_eval import compute_recalls
+
+    benign_only = np.array([0, 0, 0])
+    similarities = np.ones((3, 3), dtype=np.float32)
+    _, malicious_recall = compute_recalls(benign_only, benign_only, 3, similarities)
+    assert np.isnan(malicious_recall)
 
 
 def test_all_equal_scores() -> None:

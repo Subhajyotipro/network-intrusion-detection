@@ -84,6 +84,14 @@ def test_boolean_flag_overrides():
         load_config(overrides=["squared=invalid_bool"])
 
 
+def test_cli_boolean_set_options_parse_false():
+    """Verify CLI --set boolean strings survive argparse and config loading as False."""
+    args = build_parser().parse_args(["train", "--set", "residual=false", "--set", "squared=false"])
+    cfg = load_config(overrides=args.overrides)
+    assert cfg.residual is False
+    assert cfg.squared is False
+
+
 def test_type_coercion_and_overrides():
     """Verify float, list, and int coercion from string overrides."""
     cfg = load_config(overrides=["lr_peak=1e-5", "hidden=[512, 512]", "epochs=50"])
@@ -176,7 +184,7 @@ def test_get_run_metadata():
         assert meta_nogit["git_commit"] == "unknown"
 
 
-def test_cli_subcommands(tmp_path: Path):
+def test_cli_subcommands(tmp_path: Path, capsys: pytest.CaptureFixture[str]):
     """Verify that run.py parses subcommands and options correctly."""
     parser = build_parser()
     for cmd in ["train", "eval", "calibrate", "cascade", "bench", "demo"]:
@@ -204,6 +212,7 @@ def test_cli_subcommands(tmp_path: Path):
         ]
     )
     assert exit_code == 0
+    assert capsys.readouterr().out == ""
 
 
 def test_config_validation_and_bug_hunt(tmp_path: Path):

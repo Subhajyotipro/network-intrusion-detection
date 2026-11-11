@@ -105,6 +105,15 @@ def test_val_ratio_zero_reproduces_upstream_split(tiny_synthetic_csv_path: Path)
     assert len(splits.y_test) == int(total_known * 0.5)
 
 
+def test_zero_test_ratio_keeps_all_known_rows_for_training():
+    """Verify the supported train-only split has no held-out test partition."""
+    df = generate_synthetic_dataset(n_samples_known=20, n_samples_zd=5, seed=92)
+    splits = load_data(df, sample_thres=10, test_ratio=0.0, val_ratio=0.0, split_seed=92)
+    assert splits.x_test is None and splits.y_test is None
+    assert len(splits.y_train) == 12 * 20
+    assert set(splits.split_indices) == {"train"}
+
+
 def test_class_map_benign_is_zero():
     """Verify ClassMap assigns BENIGN_ID = 0 and reports known and zero-day counts."""
     df = generate_synthetic_dataset(n_samples_known=20, n_samples_zd=5)
@@ -154,6 +163,27 @@ def test_scaler_and_imputer_fit_on_train_only(tmp_path: Path):
     assert np.allclose(splits1.x_train.std(axis=0), 1.0, atol=1e-5)
     assert np.allclose(splits2.x_train.mean(axis=0), 0.0, atol=1e-5)
     assert np.allclose(splits2.x_train.std(axis=0), 1.0, atol=1e-5)
+
+
+def test_missing_test_value_uses_train_median(tmp_path: Path):
+    """Verify a missing test value is imputed with the train median before scaling."""
+    df = generate_synthetic_dataset(n_samples_known=60, n_samples_zd=10, n_features=4, seed=91)
+    known_rows = np.flatnonzero(df["label"].isin(KNOWN_CLASSES).to_numpy())
+    baseline = load_data(df, sample_thres=20, test_ratio=0.5, val_ratio=0.1, split_seed=42)
+    test_position = 0
+    known_index = baseline.split_indices["test"][test_position]
+    source_row = known_rows[known_index]
+    train_rows = known_rows[baseline.split_indices["train"]]
+    train_values = df.iloc[train_rows]["feature_0"].to_numpy(dtype=np.float64)
+    train_median = np.median(train_values)
+    expected = (train_median - np.mean(train_values)) / np.std(train_values)
+
+    dirty = df.copy()
+    dirty.loc[source_row, "feature_0"] = np.nan
+    transformed = load_data(dirty, sample_thres=20, test_ratio=0.5, val_ratio=0.1, split_seed=42)
+
+    np.testing.assert_array_equal(transformed.x_train, baseline.x_train)
+    assert np.isclose(transformed.x_test[test_position, 0], expected, atol=1e-6)
 
 
 def test_zero_column_mask_computed_on_train_only(tmp_path: Path):

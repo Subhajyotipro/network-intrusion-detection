@@ -82,6 +82,9 @@ def test_train_cli_smoke_closr(tmp_path: Path):
     assert (w_dir / "closr_seed1.weights.h5").is_file()
     assert (w_dir / "closr_seed1_meta.json").is_file()
     assert (w_dir / "closr_seed1_opt.npz").is_file()
+    metadata = json.loads((w_dir / "closr_seed1_meta.json").read_text(encoding="utf-8"))
+    assert len(metadata["extra"]["centroids"]) == 12
+    assert all(len(centroid) == 64 for centroid in metadata["extra"]["centroids"])
 
 
 def test_train_cli_smoke_clad(tmp_path: Path):
@@ -113,6 +116,8 @@ def test_train_cli_smoke_clad(tmp_path: Path):
 
     assert (res_dir / "train" / "clad_seed2.json").is_file()
     assert (w_dir / "clad_seed2.weights.h5").is_file()
+    metadata = json.loads((w_dir / "clad_seed2_meta.json").read_text(encoding="utf-8"))
+    assert len(metadata["extra"]["centroids"]) == metadata["config"]["d_out"]
 
 
 def _stage_cli(args_str: str, base: list[str], env: dict[str, str], root: Path) -> None:

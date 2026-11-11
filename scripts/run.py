@@ -31,6 +31,7 @@ from nids.compare import build_comparison_tables
 from nids.config import Config, get_run_metadata, load_config, setup_logging
 from nids.data import generate_synthetic_data, load_data
 from nids.eval_pipeline import run_eval_pipeline
+from nids.infer import get_centroids, get_clad_centroid
 from nids.train import train
 from nids.viz import create_tsne_figure
 
@@ -184,6 +185,19 @@ def run_train(cfg: Config, resume_checkpoint: str | None = None) -> dict[str, st
     """Execute training pipeline on real or synthetic data and write D4.7 results."""
     data, dataset_type = _load_train_dataset(cfg)
     train_res = train(cfg, kind=cfg.model_kind, data=data, resume_checkpoint=resume_checkpoint)
+    centroids = (
+        get_clad_centroid(
+            train_res["model"], data.x_train, data.y_train, batch_size=cfg.eval_batch_size
+        ).tolist()
+        if cfg.model_kind == "clad"
+        else get_centroids(
+            train_res["model"],
+            data.x_train,
+            data.y_train,
+            data.class_map.n_known,
+            batch_size=cfg.eval_batch_size,
+        ).tolist()
+    )
 
     ckpt_dir = Path(cfg.weights_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -198,6 +212,7 @@ def run_train(cfg: Config, resume_checkpoint: str | None = None) -> dict[str, st
         cfg.seed,
         epoch=train_res["epoch"],
         extra={
+            "centroids": centroids,
             "epoch_losses": train_res["epoch_losses"],
             "total_steps": train_res["total_steps"],
             "total_epochs": cfg.epochs,
@@ -254,13 +269,13 @@ def main(args_list: list[str] | None = None) -> int:
     logger.info("Subcommand: %s, model: %s, seed: %d", args.subcommand, log_model, cfg.seed)
     if args.subcommand == "train":
         artifacts = run_train(cfg, resume_checkpoint=getattr(args, "resume", None))
-        print(f"Training completed successfully: {artifacts}")
+        logger.info("Training completed successfully: %s", artifacts)
         return 0
     if args.subcommand == "eval":
         data, dataset_type = _load_train_dataset(cfg)
         ckpt_arg = getattr(args, "checkpoint", None)
         artifacts = run_eval_pipeline(cfg, data, dataset_type, checkpoint_override=ckpt_arg)
-        print(f"Evaluation completed successfully: {artifacts}")
+        logger.info("Evaluation completed successfully: %s", artifacts)
         return 0
     if args.subcommand == "tsne":
         artifacts = run_tsne(cfg, checkpoint=getattr(args, "checkpoint", None))
@@ -270,7 +285,7 @@ def main(args_list: list[str] | None = None) -> int:
         data, dataset_type = _load_train_dataset(cfg)
         out_dir = getattr(args, "output_dir", None)
         artifacts = run_baseline(args.model, cfg, data, output_dir=out_dir)
-        print(f"Baseline run completed successfully: {artifacts}")
+        logger.info("Baseline run completed successfully: %s", artifacts)
         return 0
     if args.subcommand == "compare":
         out_dir = getattr(args, "output_dir", None)
@@ -278,12 +293,12 @@ def main(args_list: list[str] | None = None) -> int:
         tables = build_comparison_tables(
             results_dir=cfg.results_dir, output_dir=out_dir, synthetic_mode=is_syn
         )
-        print(f"Comparison tables generated successfully: {tables}")
+        logger.info("Comparison tables generated successfully: %s", tables)
         return 0
 
-    print(
-        f"Subcommand '{args.subcommand}' resolved config successfully. "
-        f"Execution is not implemented yet (PR2+)."
+    logger.info(
+        "Subcommand '%s' resolved config successfully. Execution is not implemented yet (PR2+).",
+        args.subcommand,
     )
     return 0
 

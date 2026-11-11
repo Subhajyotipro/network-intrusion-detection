@@ -130,7 +130,10 @@ def _run_epoch(
         step += 1
         lr = schedule_fn(step)
         optimizer.learning_rate.assign(lr)
-        loss_val, frac_pos = step_fn(net, optimizer, loss_fn, tf.constant(x_np), tf.constant(y_np))
+        x_batch, y_batch = tf.constant(x_np), tf.constant(y_np)
+        if not tf.reduce_all(tf.math.is_finite(x_batch)):
+            raise ValueError("Training batch contains non-finite (NaN or Inf) values.")
+        loss_val, frac_pos = step_fn(net, optimizer, loss_fn, x_batch, y_batch)
         if not tf.math.is_finite(loss_val):
             raise ValueError(f"Non-finite loss {float(loss_val)} at step {step}")
         last_f_pos = float(frac_pos)

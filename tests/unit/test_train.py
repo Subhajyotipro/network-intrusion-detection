@@ -197,6 +197,38 @@ def test_train_nan_input_raises_value_error():
         train(cfg, kind="closr", data=data)
 
 
+def test_train_inf_input_raises_value_error():
+    """Verify positive infinity in training features fails before an optimizer update."""
+    x = np.full((16, 4), np.inf, dtype=np.float32)
+    y = np.zeros(16, dtype=np.int64)
+    data = DatasetSplits(
+        x_train=x,
+        y_train=y,
+        x_val=None,
+        y_val=None,
+        x_test=None,
+        y_test=None,
+        x_zd=None,
+        y_zd=None,
+        zd_names=None,
+        class_map=ClassMap(names=["benign"], zero_day_names=[]),
+        split_indices={"train": np.arange(16)},
+        d_in=4,
+    )
+    cfg = Config(
+        model_kind="closr",
+        d_in=4,
+        hidden=[8],
+        d_out=4,
+        n_classes=1,
+        batch_size=8,
+        epochs=1,
+        smoke=False,
+    )
+    with pytest.raises(ValueError, match="Training batch contains non-finite"):
+        train(cfg, kind="closr", data=data)
+
+
 def test_train_unsupported_model_kind_raises_value_error():
     """Verify unsupported kind string raises ValueError."""
     cfg = Config(model_kind="closr", d_in=4, hidden=[8], d_out=4, n_classes=2)

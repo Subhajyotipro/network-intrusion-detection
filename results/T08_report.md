@@ -23,6 +23,7 @@
 ## 2. Reproduction Results vs. Targets
 
 Reproduction target tolerance per AGENTS.md Section 2.4 is within **$\pm 0.01$**.
+The CLAD and CLOSR entries are verified against the evaluation JSONs. The baseline rerun values in the following table were recorded in the original staging analysis, but their baseline JSON files are absent from this checkout; they are therefore not independently verified for PR1-T11 (see Sections 5–6).
 
 ### Table 1: Binary AUROC vs. Benign Traffic (One-vs-Benign)
 | Model | Target Closed Mean | Re-Run Closed Mean | Closed Gap | Target Open Mean | Re-Run Open Mean | Open Gap | Within $\pm 0.01$? | Source / Seed |
@@ -75,7 +76,9 @@ To determine whether the Isolation Forest gap is due to seed noise or systematic
 
 ## 5. Artifacts and File Manifest
 
-All reported numbers are derived directly from committed files:
+The CLAD and CLOSR evaluation metrics below are verified from the local evaluation JSONs and per-class CSVs. PR1-T11 stages the small evaluation JSONs and CSVs, together with the generated upstream/re-run comparison CSV and Markdown table, so this evidence is present in a clean checkout after that commit.
+
+The baseline rerun values listed earlier in this staging report were reported during PR1-T08, but their baseline JSON files are not present in the current checkout. They cannot be independently revalidated here and are not used as verified numeric evidence in `docs/reports/PR1_summary.md`. The comparison table generated for PR1-T11 contains the current CLAD/CLOSR evaluation records and upstream-reported rows; it does not claim locally rerun AE, IF, or MLP values.
 
 - **CLAD:**
   - Metrics: `results/eval/clad_seed1_eval.json`
@@ -97,18 +100,9 @@ All reported numbers are derived directly from committed files:
   - `results/baselines/comparison.csv`
   - `results/baselines/comparison.md`
 
----
+## 6. Tracking Status
 
-## 6. Git-Ignored Files Notice
-
-Per `.gitignore`, large and generated artifacts cited in this report are excluded from version control tracking:
-- `results/baselines/*` (except `.gitkeep`): `mlp_seed1.json`, `autoencoder_seed1.json`, `iforest_seed1.json`, `iforest_seed2.json`, `iforest_seed3.json`, `isolation_forest_seed2.json`, `isolation_forest_seed3.json`, `comparison.csv`, `comparison.md`.
-- `results/eval/*` (except `.gitkeep`): `clad_seed1_eval.json`, `clad_seed1_per_class.csv`, `clad_seed1_arrays.npz`, `closr_seed1_eval.json`, `closr_seed1_per_class.csv`, `closr_seed1_arrays.npz`.
-- `results/train/*` (except `.gitkeep`): `clad_seed1.json`, `closr_seed1.json`.
-- `results/splits/*` (except `.gitkeep`): cached `*.npz` index split files.
-- `weights/*` (except `.gitkeep`): `*.weights.h5`, `*.meta.json`, `*.opt.npz`.
-
-Only the staging report `results/T08_report.md` itself is tracked in `results/`.
+The repository `.gitignore` rules still ignore generated evaluation, baseline, training, split, and weight outputs by default. PR1-T11 explicitly tracks only these small result artifacts: `results/eval/clad_seed1_eval.json`, `results/eval/clad_seed1_per_class.csv`, `results/eval/closr_seed1_eval.json`, `results/eval/closr_seed1_per_class.csv`, `results/baselines/comparison.csv`, and `results/baselines/comparison.md`. The evaluation array archives (`*_arrays.npz`), training JSONs, split archives, weight files, and optimizer archives remain local-only and are not required as tracked report evidence. The baseline JSON files previously cited in this staging report are absent from this checkout.
 
 ---
 
@@ -117,10 +111,10 @@ Only the staging report `results/T08_report.md` itself is tracked in `results/`.
 1. **Config Epochs vs. Top-Level Epochs:**
    In the evaluation records (`closr_seed1_eval.json` and `clad_seed1_eval.json`), the inner `config.epochs` displays `200` because the evaluation CLI command loaded the default configuration without passing an explicit `--set epochs=10` override. The top-level `epochs: 10` and `reduced_run: true` metadata represent the authoritative execution parameters of the trained checkpoints.
 2. **Zero-Day Sample Counts and Metric Noise:**
-   The Lycos2017 dataset holds out only 2 zero-day attack classes based on `sample_thres=100`:
-   - `Heartbleed`: 23 total samples (11 test, 12 train/val holdout)
-   - `Web Attack (SQL Injection)`: 24 total samples (12 test, 12 train/val holdout)
-   With only 23 total zero-day test instances out of 894,989 evaluation records, single-sample classification shifts produce noticeable variance in zero-day AUROCs.
+   The Lycos2017 dataset holds out 2 zero-day attack classes based on `sample_thres=100`:
+   - `Heartbleed`: 11 total rows, all included in zero-day evaluation.
+   - `Web Attack (SQL Injection)`: 12 total rows, all included in zero-day evaluation.
+   The combined zero-day evaluation set has 23 rows, alongside 894,966 known test rows (894,989 evaluation rows total). Single-row changes can therefore affect per-zero-day AUROCs noticeably.
 3. **Stochastic Variation vs. Split Variation:**
    Only seed 1 was run for CLAD, CLOSR, AE, and MLP due to CPU training time limits (~5.6 minutes per MLP run, ~5.0 minutes per CLAD run). Because the data split seed is held strictly fixed at `39058032` (DV6, D4.3), any standard deviation across training seeds reflects initialization and batch-order stochasticity only, not dataset variation.
 4. **Staging Status:**
